@@ -29,9 +29,16 @@ def require_api_key(environment):
     return key
 
 
-def build_jobs(max_turns=12):
+def build_jobs(max_turns=12, disable_prompt_caching=True, isolation_tools=(), isolation_mcp=False):
     return [
-        {"condition": condition, "max_turns": max_turns, "nonce": str(uuid.uuid4())}
+        {
+            "condition": condition,
+            "max_turns": max_turns,
+            "nonce": str(uuid.uuid4()),
+            "disable_prompt_caching": disable_prompt_caching,
+            "isolation_tools": tuple(isolation_tools),
+            "isolation_mcp": isolation_mcp,
+        }
         for condition in API_CONDITIONS
     ]
 
@@ -58,6 +65,9 @@ def _run_one(root, run_root, job, index, events_path, events_lock):
             api_mode=True,
             nonce=job["nonce"],
             port=8800 + index,
+            disable_prompt_caching=job["disable_prompt_caching"],
+            isolation_tools=job["isolation_tools"],
+            isolation_mcp=job["isolation_mcp"],
         )
         quality = grade_attempt(attempt_dir / "worktree", result, attempt_dir / "quality.json")
         state = "completed" if is_acceptable_result(result) else "invalid"
@@ -81,7 +91,8 @@ def _run_one(root, run_root, job, index, events_path, events_lock):
     return record
 
 
-def run_parallel(root, run_root, report_dir, max_turns=12, workers=7):
+def run_parallel(root, run_root, report_dir, max_turns=12, workers=7,
+                 disable_prompt_caching=True, isolation_tools=(), isolation_mcp=False):
     require_api_key(os.environ)
     config = load_config(root / "benchmark/config.json")
     if max_turns < 1:
@@ -91,14 +102,20 @@ def run_parallel(root, run_root, report_dir, max_turns=12, workers=7):
     (run_root / "api-config.json").write_text(json.dumps({
         "model": config.model, "effort": config.effort,
         "max_turns": max_turns, "parallel_workers": workers,
-        "disable_prompt_caching": True,
+        "disable_prompt_caching": disable_prompt_caching,
+        "isolation_tools": list(isolation_tools),
+        "isolation_mcp": isolation_mcp,
         "nonce": "unique system nonce per condition",
         "conditions": API_CONDITIONS,
         "fixture_sha256": sha256(root / "benchmark/fixture/pyproject.toml"),
     }, indent=2, sort_keys=True) + "\n")
     events_path = run_root / "api-events.jsonl"
     events_lock = threading.Lock()
-    jobs = build_jobs(max_turns)
+    jobs = build_jobs(
+        max_turns, disable_prompt_caching=disable_prompt_caching,
+        isolation_tools=isolation_tools,
+        isolation_mcp=isolation_mcp,
+    )
     records = []
     with ThreadPoolExecutor(max_workers=min(workers, len(jobs))) as executor:
         futures = [executor.submit(_run_one, root, run_root, job, index, events_path, events_lock)
@@ -118,10 +135,21 @@ def main():
     parser.add_argument("--report-dir", type=Path, default=None)
     parser.add_argument("--max-turns", type=int, default=12)
     parser.add_argument("--workers", type=int, default=7)
+    parser.add_argument("--natural-cache", action="store_true",
+                        help="Enable provider prompt caching within each condition")
     args = parser.parse_args()
-    run_root = args.run_root or args.root / "benchmark/runs-api"
-    report_dir = args.report_dir or args.root / "benchmark/reports-api"
-    records = run_parallel(args.root, run_root, report_dir, args.max_turns, args.workers)
+    run_root = args.run_root or args.root / (
+        "benchmark/runs-api-natural" if args.natural_cache else "benchmark/runs-api"
+    )
+    report_dir = args.report_dir or args.root / (
+        "benchmark/reports-api-natural" if args.natural_cache else "benchmark/reports-api"
+    )
+    records = run_parallel(
+        args.root, run_root, report_dir, args.max_turns, args.workers,
+        disable_prompt_caching=not args.natural_cache,
+        isolation_tools=("WebSearch",) if args.natural_cache else (),
+        isolation_mcp=args.natural_cache,
+    )
     print(json.dumps(sorted(records, key=lambda x: x["condition"]), indent=2, sort_keys=True))
     raise SystemExit(0 if all(item["state"] == "completed" for item in records) else 2)
 

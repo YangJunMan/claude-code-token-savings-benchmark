@@ -3,6 +3,16 @@
 benchmark/local-backup/
 benchmark/runs/
 benchmark/runs-api/
+benchmark/runs-api-natural/
+benchmark/runs-api-natural-v2/
+benchmark/runs-api-natural-v3/
 benchmark/reports/*.csv
 benchmark/reports-api/*.csv
+benchmark/reports-api-natural/*.csv
+benchmark/reports-api-natural-v2/*.csv
+benchmark/reports-api-natural-v3/*.csv
+benchmark/runs-api-natural-v3-failed-mcp-path/
+benchmark/reports-api-natural/
+benchmark/reports-api-natural-v2/
+benchmark/reports-api-natural-v3-failed-mcp-path/
 benchmark/reports/checksums.sha256

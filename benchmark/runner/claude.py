@@ -5,6 +5,7 @@ import pty
 import select
 import shutil
 import subprocess
+import sys
 import time
 import uuid
 
@@ -45,6 +46,36 @@ def prepare_worktree(fixture: Path, destination: Path):
     subprocess.run(["git", "-c", "user.name=Benchmark", "-c", "user.email=benchmark@invalid", "commit", "-qm", "fixture"], cwd=destination, check=True)
 
 
+def configure_api_environment(environment, *, disable_prompt_caching=True):
+    """Prepare an API environment without ever falling back to OAuth."""
+    configured = dict(environment)
+    if not configured.get("ANTHROPIC_API_KEY"):
+        raise RuntimeError("API mode requires ANTHROPIC_API_KEY; refusing OAuth fallback")
+    if disable_prompt_caching:
+        configured["DISABLE_PROMPT_CACHING"] = "1"
+    else:
+        configured.pop("DISABLE_PROMPT_CACHING", None)
+    return configured
+
+
+def build_isolation_mcp_config(server_script, nonce):
+    """Build a per-condition MCP tool definition to salt the tools prefix."""
+    tool_name = "benchmark_sentinel_" + str(nonce).replace("-", "")
+    return {
+        "mcpServers": {
+            "benchmark-isolation": {
+                "command": sys.executable,
+                "args": [str(server_script), tool_name],
+            }
+        }
+    }
+
+
+def isolation_mcp_config_path(attempt_dir):
+    """Return an absolute config path because Claude runs from the worktree."""
+    return Path(attempt_dir).resolve() / "isolation-mcp.json"
+
+
 def clear_session(session_id: str, cwd: Path, output_path: Path, timeout=20):
     pid, fd = pty.fork()
     if pid == 0:
@@ -67,12 +98,17 @@ def clear_session(session_id: str, cwd: Path, output_path: Path, timeout=20):
         elif sent_clear and not sent_exit and time.time() > deadline - timeout + 6:
             os.write(fd, b"/exit\r")
             sent_exit = True
-    output_path.write_bytes(bytes(transcript))
-    return sent_clear and clear_succeeded(bytes(transcript))
+    captured = bytes(transcript)
+    output_path.write_bytes(captured)
+    return {
+        "command_sent": sent_clear,
+        "resume_marker_observed": clear_succeeded(captured),
+    }
 
 
 def run_attempt(root: Path, condition, attempt_dir: Path, *, max_turns=28,
-                api_mode=False, nonce=None, port=8787):
+                api_mode=False, nonce=None, port=8787, disable_prompt_caching=True,
+                isolation_tools=(), isolation_mcp=False):
     spec = build_condition(condition, attempt_dir / "worktree")
     worktree = attempt_dir / "worktree"
     attempt_dir.mkdir(parents=True, exist_ok=True)
@@ -94,14 +130,22 @@ def run_attempt(root: Path, condition, attempt_dir: Path, *, max_turns=28,
                "--session-id", session_id, "--setting-sources", "project"]
     if nonce:
         command.extend(["--append-system-prompt", f"Benchmark isolation nonce: {nonce}"])
+    if isolation_tools:
+        command.extend(["--disallowedTools", *isolation_tools])
+    if isolation_mcp:
+        mcp_path = isolation_mcp_config_path(attempt_dir)
+        mcp_path.write_text(json.dumps(build_isolation_mcp_config(
+            root / "benchmark/runner/isolation_mcp_server.py", nonce
+        ), indent=2, sort_keys=True) + "\n")
+        command.extend(["--mcp-config", str(mcp_path), "--strict-mcp-config"])
     if spec.load_caveman:
         command.extend(["--plugin-dir", str(_caveman_plugin_dir())])
     environment = os.environ.copy()
     environment.pop("ANTHROPIC_BASE_URL", None)
     if api_mode:
-        if not environment.get("ANTHROPIC_API_KEY"):
-            raise RuntimeError("API mode requires ANTHROPIC_API_KEY; refusing OAuth fallback")
-        environment["DISABLE_PROMPT_CACHING"] = "1"
+        environment = configure_api_environment(
+            environment, disable_prompt_caching=disable_prompt_caching
+        )
     proxy = None
     if condition.value in ("H-ON", "H-OFF"):
         proxy = _start_headroom(root, condition.value == "H-ON", attempt_dir / "optimizer.jsonl", port=port)
@@ -122,7 +166,8 @@ def run_attempt(root: Path, condition, attempt_dir: Path, *, max_turns=28,
     (attempt_dir / "stderr.log").write_text(result.stderr)
     parsed = json.loads(result.stdout) if result.stdout.strip().startswith("{") else {"raw": result.stdout}
     parsed.update({"condition": condition.value, "session_id": session_id, "returncode": result.returncode,
-                   "api_mode": api_mode, "max_turns": max_turns, "nonce": nonce,
+                   "api_mode": api_mode, "disable_prompt_caching": bool(api_mode and disable_prompt_caching),
+                   "max_turns": max_turns, "nonce": nonce,
                    "started_epoch": started, "last_request_epoch": time.time()})
     parsed["final_text"] = parsed.get("result", "")
     with (attempt_dir / "git.diff").open("w") as diff_stream:
@@ -133,7 +178,13 @@ def run_attempt(root: Path, condition, attempt_dir: Path, *, max_turns=28,
     parsed["changed_files"] = subprocess.run(
         ["git", "diff", "--name-only"], cwd=worktree, text=True, capture_output=True
     ).stdout.splitlines()
-    parsed["clear_succeeded"] = clear_session(session_id, worktree, attempt_dir / "clear.log")
+    clear_evidence = clear_session(session_id, worktree, attempt_dir / "clear.log")
+    parsed["clear_succeeded"] = clear_succeeded(
+        (attempt_dir / "clear.log").read_bytes(),
+        command_sent=clear_evidence["command_sent"],
+    )
+    parsed["clear_command_sent"] = clear_evidence["command_sent"]
+    parsed["clear_resume_marker_observed"] = clear_evidence["resume_marker_observed"]
     transcript_summary = archive_transcript(session_id, attempt_dir / "transcript.jsonl")
     parsed["transcript_summary"] = transcript_summary
     write_manifest(root, condition, attempt_dir, parsed, transcript_summary)

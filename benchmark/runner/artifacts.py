@@ -5,7 +5,10 @@ import shutil
 import subprocess
 
 
-def clear_succeeded(transcript: bytes) -> bool:
+def clear_succeeded(transcript: bytes, command_sent=None) -> bool:
+    """Check the terminal marker, or the runner's explicit send result."""
+    if command_sent is not None:
+        return bool(command_sent)
     return b"/clear" in transcript and b"Resume this session with:" in transcript
 
 
@@ -101,6 +104,7 @@ def write_manifest(root: Path, condition, attempt_dir: Path, result: dict, trans
         "effort": "medium",
         "max_turns": int(result.get("max_turns", 28)),
         "execution_mode": "api" if result.get("api_mode") else "claude.ai",
+        "disable_prompt_caching": bool(result.get("disable_prompt_caching", False)),
         "session_id": result["session_id"],
         "nonce": result.get("nonce"),
         "fixture_commit": fixture_commit,

@@ -38,6 +38,10 @@ class ArtifactTests(unittest.TestCase):
         self.assertTrue(clear_succeeded(b"prompt /clear Resume this session with:"))
         self.assertFalse(clear_succeeded(b"prompt /clear"))
 
+    def test_clear_command_sent_is_separate_from_optional_terminal_echo(self):
+        self.assertTrue(clear_succeeded(b"terminal omitted typed input", command_sent=True))
+        self.assertFalse(clear_succeeded(b"terminal omitted typed input", command_sent=False))
+
 
 if __name__ == "__main__":
     unittest.main()

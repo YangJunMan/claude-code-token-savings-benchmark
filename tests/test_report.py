@@ -1,6 +1,10 @@
 import unittest
+import json
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
-from benchmark.reports.generate import paired_comparisons
+from benchmark.reports.generate import _acceptable, cache_phase_counts, paired_comparisons
+from benchmark.runner.usage import parse_usage
 
 
 class ReportTests(unittest.TestCase):
@@ -37,6 +41,65 @@ class ReportTests(unittest.TestCase):
         comparison = paired_comparisons(rows)[0]
         self.assertFalse(comparison["quality_gate_pass"])
         self.assertFalse(comparison["recommended"])
+
+    def test_api_clear_recovery_is_separate_auditable_evidence(self):
+        result = {
+            "api_mode": True,
+            "clear_succeeded": False,
+            "returncode": 1,
+            "terminal_reason": "max_turns",
+            "public_returncode": 0,
+        }
+        with TemporaryDirectory() as directory:
+            attempt = Path(directory)
+            (attempt / "clear-recovery.json").write_text(json.dumps({
+                "command_sent": True,
+                "resume_marker_observed": True,
+            }))
+            self.assertTrue(_acceptable(result, attempt))
+
+    def test_nonzero_first_turn_cache_read_is_not_acceptable(self):
+        result = {
+            "api_mode": True,
+            "clear_succeeded": True,
+            "returncode": 1,
+            "terminal_reason": "max_turns",
+            "public_returncode": 0,
+            "transcript_summary": {"first_turn_cache_read_tokens": 7304},
+        }
+        with TemporaryDirectory() as directory:
+            self.assertFalse(_acceptable(result, Path(directory)))
+
+    def test_zero_first_turn_cache_read_is_acceptable(self):
+        result = {
+            "api_mode": True,
+            "clear_succeeded": True,
+            "returncode": 1,
+            "terminal_reason": "max_turns",
+            "public_returncode": 0,
+            "transcript_summary": {"first_turn_cache_read_tokens": 0},
+        }
+        with TemporaryDirectory() as directory:
+            self.assertTrue(_acceptable(result, Path(directory)))
+
+    def test_cache_phase_counts_separate_first_turn_from_later_turns(self):
+        usage = parse_usage({"modelUsage": {"model": {
+            "inputTokens": 10,
+            "cacheCreationInputTokens": 120,
+            "cacheReadInputTokens": 450,
+            "outputTokens": 20,
+            "costUSD": 0.1,
+        }}})
+        phases = cache_phase_counts(usage, {
+            "first_turn_cache_creation_tokens": 120,
+            "first_turn_cache_read_tokens": 0,
+        })
+        self.assertEqual(phases, {
+            "first_turn_cache_creation_tokens": 120,
+            "first_turn_cache_read_tokens": 0,
+            "later_turn_cache_creation_tokens": 0,
+            "later_turn_cache_read_tokens": 450,
+        })
 
 
 if __name__ == "__main__":
