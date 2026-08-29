@@ -1,0 +1,8 @@
+.worktrees/
+.venv/
+benchmark/local-backup/
+benchmark/runs/
+benchmark/runs-api/
+benchmark/reports/*.csv
+benchmark/reports-api/*.csv
+benchmark/reports/checksums.sha256

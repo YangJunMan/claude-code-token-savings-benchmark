@@ -1,0 +1,24 @@
+2026-08-29T09:00:00Z INFO scheduler poll queued=18 running=1
+2026-08-29T09:00:01Z INFO scheduler poll queued=18 running=1
+2026-08-29T09:00:02Z WARN duplicate submission user=alice key=upload-77 returned job=job-a
+2026-08-29T09:00:02Z ERROR UNIQUE constraint missing user=alice key=upload-77 second_job=job-b
+2026-08-29T09:00:03Z INFO scheduler poll queued=19 running=1
+2026-08-29T09:00:04Z WARN worker lease expired job=job-old worker=gpu-1 attempts=1
+2026-08-29T09:00:05Z INFO selected job=job-low priority=1 created=100
+2026-08-29T09:00:05Z ERROR priority inversion waiting_job=job-high priority=9 created=101
+2026-08-29T09:00:06Z INFO heartbeat job=job-old worker=gpu-2
+2026-08-29T09:00:06Z ERROR stale worker extended foreign lease expected=gpu-1 actual=gpu-2
+2026-08-29T09:00:07Z INFO scheduler poll queued=18 running=2
+2026-08-29T09:00:07Z ERROR gpu concurrency exceeded configured=1 observed=2
+2026-08-29T09:00:08Z INFO request path=/health status=200 latency_ms=2
+2026-08-29T09:00:09Z INFO request path=/metrics status=200 latency_ms=3
+2026-08-29T09:00:10Z WARN retry job=job-old attempts=2
+2026-08-29T09:00:11Z WARN retry job=job-old attempts=3
+2026-08-29T09:00:12Z ERROR retry loop job=job-old attempts=4 expected_state=dead actual_state=queued
+2026-08-29T09:00:13Z INFO scheduler poll queued=18 running=1
+2026-08-29T09:00:14Z INFO scheduler poll queued=18 running=1
+2026-08-29T09:00:15Z INFO scheduler poll queued=18 running=1
+2026-08-29T09:00:16Z WARN user quota user=bob active=4 configured=3
+2026-08-29T09:00:17Z ERROR submission admitted above quota user=bob
+2026-08-29T09:00:18Z INFO shutdown signal=TERM grace_seconds=30
+2026-08-29T09:00:19Z ERROR readiness remained true during shutdown

@@ -1,0 +1,11 @@
+{
+  "model": "claude-sonnet-5",
+  "effort": "medium",
+  "max_turns": 28,
+  "washout_seconds": 4200,
+  "conditions": ["H-ON", "H-OFF", "C-FULL", "C-NON", "C-BRIEF", "R-ON", "R-OFF"],
+  "target_input_related_min": 600000,
+  "target_input_related_max": 1000000,
+  "target_output_min": 15000,
+  "target_output_max": 30000
+}

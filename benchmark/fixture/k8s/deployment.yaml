@@ -1,0 +1,19 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gpu-admission
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: gpu-admission
+  template:
+    metadata:
+      labels:
+        app: gpu-admission
+    spec:
+      containers:
+        - name: api
+          image: example.invalid/gpu-admission:0.1.0
+          ports:
+            - containerPort: 8080
