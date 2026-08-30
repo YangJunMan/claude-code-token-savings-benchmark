@@ -1,0 +1,8 @@
+run_id,condition,cost_usd,input_tokens,cache_creation_tokens,cache_read_tokens,output_tokens,total_processed_tokens,quality_score,critical_pass,turns,changed_lines,validation
+BASE-01,BASE,1.799,1554,85081,2337021,51826,2475482,96,5/6,30,1122,held-out grader
+BASE-02,BASE,1.984,1576,103190,2936976,47645,3089387,96,5/6,41,1123,held-out grader
+H-ON-01,H-ON,1.218,599,80106,1291663,35311,1407679,98,6/6,28,1240,held-out grader
+H-ON-02,H-ON,1.567,613,80136,1991007,44596,2116352,,,48,,public tests passed; held-out grader not run
+C-FULL,C-FULL,1.960,1586,82858,3058367,48657,3191468,100,6/6,39,1114,held-out grader
+C-BRIEF,C-BRIEF,1.510,1588,67128,2198701,39820,2307237,96,5/6,33,1082,held-out grader
+R-ON,R-ON,1.580,1548,95475,1802109,45300,1944432,98,6/6,26,1207,held-out grader

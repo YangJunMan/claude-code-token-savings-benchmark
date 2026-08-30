@@ -38,9 +38,24 @@ class ArtifactTests(unittest.TestCase):
         self.assertTrue(clear_succeeded(b"prompt /clear Resume this session with:"))
         self.assertFalse(clear_succeeded(b"prompt /clear"))
 
-    def test_clear_command_sent_is_separate_from_optional_terminal_echo(self):
-        self.assertTrue(clear_succeeded(b"terminal omitted typed input", command_sent=True))
-        self.assertFalse(clear_succeeded(b"terminal omitted typed input", command_sent=False))
+    def test_clear_without_terminal_evidence_is_not_success(self):
+        """Writing /clear to the pty is an attempt, not proof that it happened."""
+        self.assertFalse(clear_succeeded(b"terminal omitted typed input"))
+
+    def test_housekeeping_failure_does_not_lose_a_paid_run(self):
+        """A completed run is already paid for; /clear failing must not raise."""
+        import inspect
+        from benchmark.runner import claude as module
+        source = inspect.getsource(module.run_attempt)
+        self.assertIn("except OSError as error:", source)
+        self.assertIn("except RuntimeError as error:", source)
+        clear_source = inspect.getsource(module.clear_session)
+        self.assertIn("write_failed", clear_source)
+
+    def test_harness_paths_are_excluded_from_the_measured_diff(self):
+        from benchmark.runner.claude import HARNESS_ONLY_PATHS
+        for pattern in ("__pycache__/", "*.pyc", ".claude/"):
+            self.assertIn(pattern, HARNESS_ONLY_PATHS)
 
 
 if __name__ == "__main__":

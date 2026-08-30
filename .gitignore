@@ -1,5 +1,13 @@
 .worktrees/
 .venv/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.log
+__pycache__/
+*.py[cod]
 benchmark/local-backup/
 benchmark/runs/
 benchmark/runs-api/

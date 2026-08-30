@@ -21,7 +21,7 @@ You are taking ownership of an incomplete Kubernetes GPU batch admission service
 
 ## Size and shape
 
-Aim for roughly this distribution of changed lines. These are guidance, not a limit to spend turns trimming toward:
+Aim for roughly this distribution of changed lines, and keep the total under 1,000 lines:
 
 | Area | Target |
 |---|---|

@@ -17,9 +17,23 @@ from .contracts import Condition, load_config
 
 
 API_CONDITIONS = [condition.value for condition in (
-    Condition.H_ON, Condition.H_OFF, Condition.C_FULL, Condition.C_NON,
-    Condition.C_BRIEF, Condition.R_ON, Condition.R_OFF,
+    Condition.BASE, Condition.H_ON, Condition.C_FULL,
+    Condition.C_BRIEF, Condition.R_ON,
 )]
+
+# The baseline is repeated because the spread between two identical runs is the
+# floor every saving has to clear; without it no percentage can be interpreted.
+# H-ON is repeated because a single observation of it overstated the saving by
+# nine percentage points.
+REPRODUCTION_PLAN = (
+    ("BASE-01", Condition.BASE.value),
+    ("BASE-02", Condition.BASE.value),
+    ("H-ON-01", Condition.H_ON.value),
+    ("H-ON-02", Condition.H_ON.value),
+    ("C-FULL", Condition.C_FULL.value),
+    ("C-BRIEF", Condition.C_BRIEF.value),
+    ("R-ON", Condition.R_ON.value),
+)
 
 
 def require_api_key(environment):
@@ -29,11 +43,20 @@ def require_api_key(environment):
     return key
 
 
-def build_jobs(max_turns=12, disable_prompt_caching=True, isolation_tools=(), isolation_mcp=False):
+def require_paid_run_confirmation(confirmed, max_budget_usd):
+    if not confirmed:
+        raise RuntimeError("Paid API run refused: pass --confirm-paid-run after reviewing the estimate")
+    if max_budget_usd <= 0:
+        raise ValueError("--max-budget-usd must be positive")
+    return float(max_budget_usd)
+
+
+def build_jobs(max_turns=50, disable_prompt_caching=True, isolation_tools=(), isolation_mcp=False):
     return [
         {
             "condition": condition,
             "max_turns": max_turns,
+            "max_budget_usd": 2.50,
             "nonce": str(uuid.uuid4()),
             "disable_prompt_caching": disable_prompt_caching,
             "isolation_tools": tuple(isolation_tools),
@@ -43,13 +66,30 @@ def build_jobs(max_turns=12, disable_prompt_caching=True, isolation_tools=(), is
     ]
 
 
+def build_reproduction_jobs(max_turns=50):
+    return [
+        {
+            "label": label,
+            "condition": condition,
+            "max_turns": max_turns,
+            "max_budget_usd": 2.50,
+            "nonce": str(uuid.uuid4()),
+            "disable_prompt_caching": False,
+            "isolation_tools": ("WebSearch",),
+            "isolation_mcp": True,
+        }
+        for label, condition in REPRODUCTION_PLAN
+    ]
+
+
 def _now():
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def _run_one(root, run_root, job, index, events_path, events_lock):
     condition = Condition(job["condition"])
-    attempt_dir = run_root / condition.value / "attempt-01"
+    label = job.get("label", condition.value)
+    attempt_dir = run_root / label / "attempt-01"
     state_path = attempt_dir / "api-state.json"
     attempt_dir.mkdir(parents=True, exist_ok=True)
     state_path.write_text(json.dumps({
@@ -62,6 +102,7 @@ def _run_one(root, run_root, job, index, events_path, events_lock):
             condition,
             attempt_dir,
             max_turns=job["max_turns"],
+            max_budget_usd=job.get("max_budget_usd"),
             api_mode=True,
             nonce=job["nonce"],
             port=8800 + index,
@@ -72,6 +113,7 @@ def _run_one(root, run_root, job, index, events_path, events_lock):
         quality = grade_attempt(attempt_dir / "worktree", result, attempt_dir / "quality.json")
         state = "completed" if is_acceptable_result(result) else "invalid"
         record = {
+            "label": label,
             "condition": condition.value,
             "state": state,
             "returncode": result.get("returncode"),
@@ -81,6 +123,7 @@ def _run_one(root, run_root, job, index, events_path, events_lock):
         }
     except Exception as error:
         record = {
+            "label": label,
             "condition": condition.value, "state": "error",
             "error": str(error), "finished_at": _now(),
         }
@@ -89,6 +132,30 @@ def _run_one(root, run_root, job, index, events_path, events_lock):
         with events_path.open("a") as stream:
             stream.write(json.dumps(record, sort_keys=True) + "\n")
     return record
+
+
+def run_reproduction(root, run_root, report_dir, max_turns, max_budget_usd, projected_job_usd=2.50):
+    """Run the six-job public protocol serially and stop between jobs at budget."""
+    if run_root.exists() and any(run_root.iterdir()):
+        raise FileExistsError(f"Refusing to overwrite immutable run root: {run_root}")
+    run_root.mkdir(parents=True, exist_ok=True)
+    report_dir.mkdir(parents=True, exist_ok=True)
+    events_path = run_root / "api-events.jsonl"
+    events_lock = threading.Lock()
+    records = []
+    for index, job in enumerate(build_reproduction_jobs(max_turns=max_turns)):
+        spent = sum(float(item.get("cost_usd") or 0) for item in records)
+        if spent + projected_job_usd > max_budget_usd:
+            break
+        record = _run_one(root, run_root, job, index, events_path, events_lock)
+        records.append(record)
+        spent = sum(float(item.get("cost_usd") or 0) for item in records)
+        if spent >= max_budget_usd:
+            break
+    generate_report(run_root, report_dir)
+    summary_path = report_dir / "reproduction-summary.json"
+    summary_path.write_text(json.dumps(records, indent=2, sort_keys=True) + "\n")
+    return records
 
 
 def run_parallel(root, run_root, report_dir, max_turns=12, workers=7,

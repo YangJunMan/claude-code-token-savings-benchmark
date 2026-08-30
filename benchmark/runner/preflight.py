@@ -4,6 +4,7 @@ import shutil
 import subprocess
 
 from .contracts import load_config
+from .claude import resolve_headroom_binary
 
 
 def command_version(command):
@@ -16,12 +17,15 @@ def command_version(command):
 
 def run_preflight(root=Path(".")):
     config = load_config(root / "benchmark/config.json")
-    headroom = root / ".venv/bin/headroom"
+    try:
+        headroom = resolve_headroom_binary(root)
+    except RuntimeError:
+        headroom = None
     tools = {
         "claude": command_version("claude"),
         "rtk": command_version("rtk"),
-        "headroom": {"path": str(headroom) if headroom.exists() else None,
-                     "version": subprocess.run([str(headroom), "--version"], text=True, capture_output=True).stdout.strip() if headroom.exists() else None},
+        "headroom": {"path": str(headroom) if headroom else None,
+                     "version": subprocess.run([str(headroom), "--version"], text=True, capture_output=True).stdout.strip() if headroom else None},
     }
     errors = [name for name, info in tools.items() if not info["path"]]
     if config.washout_seconds != 4200:

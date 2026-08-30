@@ -5,10 +5,12 @@ import shutil
 import subprocess
 
 
-def clear_succeeded(transcript: bytes, command_sent=None) -> bool:
-    """Check the terminal marker, or the runner's explicit send result."""
-    if command_sent is not None:
-        return bool(command_sent)
+def clear_succeeded(transcript: bytes) -> bool:
+    """Return whether the resumed session actually confirmed the /clear.
+
+    Only terminal evidence counts.  Reporting "the runner wrote /clear to the pty"
+    as success made this column unfalsifiable.
+    """
     return b"/clear" in transcript and b"Resume this session with:" in transcript
 
 
@@ -66,7 +68,7 @@ def sha256(path: Path):
 
 def changed_lines(worktree: Path):
     result = subprocess.run(
-        ["git", "diff", "--numstat"], cwd=worktree, text=True,
+        ["git", "diff", "--numstat", "HEAD"], cwd=worktree, text=True,
         capture_output=True, check=True,
     )
     added = deleted = 0

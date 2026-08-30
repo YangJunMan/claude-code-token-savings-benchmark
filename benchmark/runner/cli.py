@@ -16,17 +16,31 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def is_acceptable_result(result):
-    if not result.get("clear_succeeded"):
-        return False
+    """A run is measurable only if Claude finished the task on its own.
+
+    A ``max_turns`` truncation is an invalid attempt: the model never reaches the
+    documentation, test-reporting and final-response phase, so its token total
+    measures the turn cap rather than the condition.  A run that changed no file
+    is invalid too, even on a clean exit - a model that answers with a clarifying
+    question and stops has produced a token count for a task it never attempted.
+
+    The first-turn cache read is recorded, not required to be zero.  Every run
+    starts from the same fixed Claude Code system prompt and tool definitions, so
+    the provider may serve that prefix from cache for whichever run goes second.
+    That is shared boilerplate, not another condition's work, and it lands on
+    every condition identically.  Cross-run contamination is caught instead by
+    ``reports.generate.uniform_first_turn_cache_read``.
+    """
     transcript = result.get("transcript_summary")
-    if not transcript or int(transcript.get("first_turn_cache_read_tokens", -1)) != 0:
+    if not transcript or int(transcript.get("first_turn_cache_read_tokens", -1)) < 0:
         return False
-    if result.get("returncode") == 0:
-        return True
-    return (
-        result.get("terminal_reason") == "max_turns"
-        and result.get("public_returncode") == 0
-    )
+    if result.get("terminal_reason", "completed") != "completed":
+        return False
+    if result.get("returncode") != 0 or result.get("is_error"):
+        return False
+    if not result.get("changed_files"):
+        return False
+    return bool((result.get("final_text") or "").strip())
 
 
 def _acceptable_results(run_root, condition):
@@ -144,18 +158,15 @@ def run_all(root=ROOT):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=("preflight", "run-next", "run-all", "status", "report"))
+    parser.add_argument("command", choices=("preflight", "status", "report"),
+                        help="Legacy read-only commands; execution uses public_cli")
     args = parser.parse_args()
     if args.command == "preflight":
         record = run_preflight(ROOT)
         write_environment(ROOT / "benchmark/runs/environment.json", record)
         print(json.dumps(record, indent=2))
         raise SystemExit(0 if record["ok"] else 1)
-    if args.command == "run-next":
-        run_next()
-    elif args.command == "run-all":
-        raise SystemExit(run_all())
-    elif args.command == "status":
+    if args.command == "status":
         state = StateStore(ROOT / "benchmark/runs").load()
         print(json.dumps(state, indent=2))
     else:

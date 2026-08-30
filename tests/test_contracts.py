@@ -8,8 +8,9 @@ class ContractTests(unittest.TestCase):
     def test_config_has_fixed_order_and_4200_second_washout(self):
         config = load_config(Path("benchmark/config.json"))
         self.assertEqual([c.value for c in config.conditions], [
-            "H-ON", "H-OFF", "C-FULL", "C-NON", "C-BRIEF", "R-ON", "R-OFF"
+            "BASE", "H-ON", "C-FULL", "C-BRIEF", "R-ON"
         ])
+        self.assertGreaterEqual(config.baseline_attempts, 2)
         self.assertEqual(config.washout_seconds, 4200)
         self.assertEqual(config.model, "claude-sonnet-5")
         self.assertEqual(config.effort, "medium")

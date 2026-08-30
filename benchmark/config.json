@@ -1,11 +1,19 @@
 {
   "model": "claude-sonnet-5",
   "effort": "medium",
-  "max_turns": 28,
+  "max_turns": 50,
   "washout_seconds": 4200,
-  "conditions": ["H-ON", "H-OFF", "C-FULL", "C-NON", "C-BRIEF", "R-ON", "R-OFF"],
+  "conditions": [
+    "BASE",
+    "H-ON",
+    "C-FULL",
+    "C-BRIEF",
+    "R-ON"
+  ],
+  "baseline_attempts": 2,
+  "budget_usd": 14.0,
+  "target_output_min": 30000,
+  "target_output_max": 60000,
   "target_input_related_min": 600000,
-  "target_input_related_max": 1000000,
-  "target_output_min": 15000,
-  "target_output_max": 30000
+  "target_input_related_max": 1000000
 }
