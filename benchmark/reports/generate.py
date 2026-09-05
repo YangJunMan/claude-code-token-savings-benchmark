@@ -2,31 +2,46 @@ import csv
 import json
 from pathlib import Path
 
+from benchmark.runner.conditions import conditions as declared_conditions
 from benchmark.runner.usage import parse_usage
 
 
-BASELINE = "BASE"
+def baseline_id(conditions=None):
+    """The untreated arm is the one that applies no mechanism at all."""
+    conditions = declared_conditions() if conditions is None else conditions
+    for item in conditions.values():
+        if item.mechanism == "none":
+            return item.value
+    return next(iter(conditions))
 
-TREATMENTS = (
-    ("Headroom optimized vs baseline", "H-ON"),
-    ("Caveman full vs baseline", "C-FULL"),
-    ("Be brief vs baseline", "C-BRIEF"),
-    ("RTK on vs baseline", "R-ON"),
-)
+
+def treatments(conditions=None):
+    """Derive the comparison list from the declarations.
+
+    Hardcoding it meant a newly declared skill would run and be measured but
+    never appear in the results table, which is not "added" in any useful sense.
+    """
+    conditions = declared_conditions() if conditions is None else conditions
+    base = baseline_id(conditions)
+    return tuple(
+        (f"{item.label} vs baseline", item.value)
+        for item in conditions.values()
+        if item.value != base
+    )
 
 
 def _mean(values):
     return sum(values) / len(values) if values else 0.0
 
 
-def baseline_noise(rows):
+def baseline_noise(rows, conditions=None):
     """Spread between repeated untreated runs: the floor an effect must clear.
 
     Identical BASE attempts differ only by model nondeterminism and service
     conditions, so a treatment effect smaller than this spread is not
     distinguishable from noise.
     """
-    base_rows = [row for row in rows if row["condition"] == BASELINE]
+    base_rows = [row for row in rows if row["condition"] == baseline_id(conditions)]
     if len(base_rows) < 2:
         return None
     tokens = [row["total_processed_tokens"] for row in base_rows]
@@ -43,22 +58,23 @@ def baseline_noise(rows):
     }
 
 
-def paired_comparisons(rows):
+def paired_comparisons(rows, conditions=None):
     """Compare every treatment against the pooled untreated baseline."""
-    base_rows = [row for row in rows if row["condition"] == BASELINE]
+    baseline = baseline_id(conditions)
+    base_rows = [row for row in rows if row["condition"] == baseline]
     if not base_rows:
         return []
     token_base = _mean([row["total_processed_tokens"] for row in base_rows])
     cost_base = _mean([row["cost_usd"] for row in base_rows])
     quality_base = _mean([row["quality_score"] for row in base_rows])
     base_critical = _mean([row.get("critical_passed", 0) for row in base_rows])
-    noise = baseline_noise(rows)
+    noise = baseline_noise(rows, conditions)
     by_condition = {}
     for row in rows:
-        if row["condition"] != BASELINE:
+        if row["condition"] != baseline:
             by_condition.setdefault(row["condition"], []).append(row)
     comparisons = []
-    for label, treatment_name in TREATMENTS:
+    for label, treatment_name in treatments(conditions):
         group = by_condition.get(treatment_name)
         if not group or not token_base or not cost_base:
             continue
@@ -90,7 +106,7 @@ def paired_comparisons(rows):
         comparisons.append({
             "comparison": label,
             "treatment": treatment_name,
-            "baseline": BASELINE,
+            "baseline": baseline,
             "observations": len(group),
             "baseline_attempts": len(base_rows),
             "own_cost_spread_pct": own_spread,
@@ -213,10 +229,11 @@ def _row_for(result_path):
     }
 
 
-def collect_rows(run_root):
+def collect_rows(run_root, conditions=None):
+    conditions = declared_conditions() if conditions is None else conditions
     all_rows = [_row_for(path) for path in sorted(run_root.glob("*/*/result.json"))]
     valid = []
-    for condition in (BASELINE, "H-ON", "C-FULL", "C-BRIEF", "R-ON"):
+    for condition in conditions:
         valid.extend(row for row in all_rows
                      if row["condition"] == condition and row["valid"])
     invalid = [row for row in all_rows if not row["valid"]]
@@ -299,7 +316,7 @@ def generate_report(run_root: Path, report_dir: Path):
             "YES" if item["recommended"] else "NO",
         ] for item in comparisons],
     ))
-    noise = baseline_noise(rows)
+    noise = baseline_noise(rows, conditions)
     lines.extend(["", "## Baseline noise floor", ""])
     if noise:
         lines.extend(_markdown_table(

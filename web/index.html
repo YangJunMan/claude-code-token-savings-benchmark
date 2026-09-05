@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>토큰 절약 실험 관측소</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>토큰 절약 실험 관측소</h1>
+  <p class="sub">Claude Code의 토큰 절약법이 <strong>어느 활동에서</strong> 토큰을 아끼는지 턴 단위로 측정합니다.</p>
+</header>
+
+<section class="card" id="explainer">
+  <h2>context tax</h2>
+  <p class="sub">tool result가 컨텍스트를 키우면 그 비용은 한 번이 아닙니다.
+  남은 모든 턴이 그것을 다시 읽으므로 <strong>턴 수만큼 반복 청구</strong>됩니다.
+  합계만 보는 결과표에는 이 숫자가 보이지 않습니다.</p>
+  <p class="muted">턴 컨텍스트 = input + cache_creation + cache_read (provider 보고값) ·
+  result = 컨텍스트 증가분 − 직전 턴 output · tax = result × 이후 남은 턴 수</p>
+</section>
+
+<div class="controls">
+  <label for="run">실행</label>
+  <select id="run"></select>
+  <button id="play" type="button">진행 과정 재생</button>
+  <button id="theme" type="button" aria-pressed="false">다크 모드</button>
+</div>
+
+<section class="card" id="hero-card">
+  <h2>이 실행에서 가장 비싼 활동</h2>
+  <p class="hero" id="hero">—</p>
+  <p class="hero-note" id="hero-note"></p>
+</section>
+
+<section class="card">
+  <h2>실행 요약</h2>
+  <div class="kpi-row" id="kpis"></div>
+</section>
+
+<section class="card">
+  <h2>턴별 context tax</h2>
+  <p class="muted">막대 하나가 한 턴의 tool 호출이 이후 턴들에 걸쳐 청구시킨 총량입니다.</p>
+  <div class="scroll-x"><svg id="timeline" role="img" aria-label="턴별 context tax 막대 차트"></svg></div>
+</section>
+
+<section class="card">
+  <h2>컨텍스트 성장</h2>
+  <p class="muted">턴이 진행되며 매 턴 모델에 다시 실리는 컨텍스트의 크기입니다.</p>
+  <div class="scroll-x"><svg id="growth" role="img" aria-label="턴별 컨텍스트 크기 곡선"></svg></div>
+</section>
+
+<section class="card">
+  <h2>재청구된 컨텍스트의 출처</h2>
+  <p class="muted">provider가 실제로 다시 읽은 컨텍스트를 세 원인으로 나눈 것입니다.
+  합계가 실측과 일치할 때만 이 실행을 발행합니다.</p>
+  <div class="legend" id="reconcile-legend"></div>
+  <div class="scroll-x"><svg id="reconcile" role="img" aria-label="재청구 컨텍스트 분해 막대"></svg></div>
+  <p class="muted" id="reconcile-check"></p>
+</section>
+
+<section class="card">
+  <h2>툴별 누적 context tax</h2>
+  <div class="scroll-x"><svg id="tools" role="img" aria-label="툴별 누적 context tax"></svg></div>
+</section>
+
+<section class="card">
+  <h2>회차별 추세</h2>
+  <p class="muted">주 1회 실험이 쌓이면 조건별 선이 길어집니다. 코드 수정은 필요 없습니다.</p>
+  <div class="legend" id="trend-legend"></div>
+  <div class="scroll-x"><svg id="trend" role="img" aria-label="회차별 조건 비교 추세"></svg></div>
+  <p class="muted" id="trend-note"></p>
+</section>
+
+<section class="card">
+  <h2>턴 데이터</h2>
+  <p class="muted">차트의 모든 수치는 이 표에서, 이 표는 <code>data/activity-log.csv</code>에서 옵니다.</p>
+  <div class="scroll-x"><table id="table"></table></div>
+</section>
+
+</div>
+<div class="tooltip" id="tip" role="status" aria-live="polite"></div>
+<script src="app.js"></script>
+</body>
+</html>

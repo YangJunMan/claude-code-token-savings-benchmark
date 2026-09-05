@@ -3,7 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from benchmark.runner.contracts import Condition, RunState
+from benchmark.runner.conditions import condition
+from benchmark.runner.contracts import RunState
 from benchmark.runner.state import StateStore
 
 
@@ -11,7 +12,7 @@ class StateStoreTests(unittest.TestCase):
     def test_transition_is_persisted_and_logged(self):
         with tempfile.TemporaryDirectory() as directory:
             store = StateStore(Path(directory))
-            state = store.transition(Condition.H_ON, RunState.PREFLIGHT, attempt=1)
+            state = store.transition(condition("H-ON"), RunState.PREFLIGHT, attempt=1)
             self.assertEqual(store.load()["state"], "preflight")
             event = json.loads((Path(directory) / "events.jsonl").read_text().splitlines()[0])
             self.assertEqual(event["condition"], "H-ON")

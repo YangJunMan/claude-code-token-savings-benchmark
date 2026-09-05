@@ -5,15 +5,6 @@ import shutil
 import subprocess
 
 
-def clear_succeeded(transcript: bytes) -> bool:
-    """Return whether the resumed session actually confirmed the /clear.
-
-    Only terminal evidence counts.  Reporting "the runner wrote /clear to the pty"
-    as success made this column unfalsifiable.
-    """
-    return b"/clear" in transcript and b"Resume this session with:" in transcript
-
-
 def find_transcript(session_id: str, claude_root=None):
     root = Path(claude_root) if claude_root else Path.home() / ".claude" / "projects"
     matches = list(root.glob(f"*/{session_id}.jsonl"))

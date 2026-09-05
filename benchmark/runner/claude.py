@@ -1,9 +1,7 @@
+import glob
 import json
 import os
 from pathlib import Path
-import pty
-import select
-import signal
 import shutil
 import subprocess
 import sys
@@ -11,48 +9,56 @@ import time
 import uuid
 
 from .conditions import build_condition
-from .artifacts import archive_transcript, clear_succeeded, write_manifest
+from .artifacts import archive_transcript, write_manifest
 
 
-def resolve_caveman_plugin_dir():
-    override = os.environ.get("CAVEMAN_PLUGIN_DIR")
+def resolve_plugin_dir(settings):
+    """Resolve a declared plugin directory, honouring its environment override."""
+    override = os.environ.get(settings.get("env_override", ""))
     if override:
         candidate = Path(override)
         if candidate.is_dir():
             return candidate
-        raise RuntimeError(f"CAVEMAN_PLUGIN_DIR is not a directory: {candidate}")
-    roots = sorted((Path.home() / ".claude/plugins/cache/caveman/caveman").glob("*/plugins/caveman"))
+        raise RuntimeError(f"{settings['env_override']} is not a directory: {candidate}")
+    pattern = str(Path(settings["path_glob"]).expanduser())
+    roots = sorted(Path(match) for match in glob.glob(pattern))
     if not roots:
-        raise RuntimeError("Pinned Caveman plugin directory not found")
+        raise RuntimeError(f"Pinned plugin directory not found: {settings['path_glob']}")
     return roots[-1]
 
 
-def resolve_headroom_binary(root: Path):
-    override = os.environ.get("HEADROOM_BIN")
+def resolve_proxy_binary(root: Path, settings):
+    """Find a declared proxy executable: override, then PATH, then the venv."""
+    name = settings["binary"]
+    override = os.environ.get(settings.get("env_override", ""))
     candidates = [Path(override)] if override else []
-    discovered = shutil.which("headroom")
+    discovered = shutil.which(name)
     if discovered:
         candidates.append(Path(discovered))
-    candidates.append(root / ".venv/bin/headroom")
+    candidates.append(root / ".venv/bin" / name)
     for candidate in candidates:
         if candidate.exists() and os.access(candidate, os.X_OK):
             return candidate
-    raise RuntimeError("Headroom executable not found; set HEADROOM_BIN or install headroom")
+    raise RuntimeError(
+        f"{name} executable not found; set {settings.get('env_override')} or install {name}"
+    )
 
 
-def build_headroom_command(binary: Path, optimized: bool, log_path: Path, port=8787):
-    command = [str(binary), "proxy", "--port", str(port), "--mode", "cache",
-               "--no-cache", "--no-subscription-tracking", "--log-file", str(log_path)]
-    if not optimized:
-        command.append("--no-optimize")
-    return command
+def build_proxy_command(binary: Path, settings, log_path: Path, port=8787):
+    """Fill the declared argument template.  Nothing here names a specific tool."""
+    substitutions = {"port": str(port), "log_path": str(log_path), "binary": str(binary)}
+    return [str(binary)] + [
+        argument.format(**substitutions) for argument in settings["args"]
+    ]
 
 
-def _start_headroom(root: Path, optimized: bool, log_path: Path, port=8787):
-    command = build_headroom_command(resolve_headroom_binary(root), optimized, log_path, port)
+def _start_proxy(root: Path, settings, log_path: Path, port=8787):
+    binary = resolve_proxy_binary(root, settings)
+    command = build_proxy_command(binary, settings, log_path, port)
+    ready_url = f"http://127.0.0.1:{port}{settings.get('ready_path', '/readyz')}"
     process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     for _ in range(60):
-        probe = subprocess.run(["curl", "-fsS", f"http://127.0.0.1:{port}/readyz"], capture_output=True)
+        probe = subprocess.run(["curl", "-fsS", ready_url], capture_output=True)
         if probe.returncode == 0:
             return process
         if process.poll() is not None:
@@ -64,7 +70,7 @@ def _start_headroom(root: Path, optimized: bool, log_path: Path, port=8787):
     except subprocess.TimeoutExpired:
         process.kill()
         output, _ = process.communicate(timeout=5)
-    raise RuntimeError(f"Headroom proxy did not become ready: {output[-1000:]}")
+    raise RuntimeError(f"{settings['binary']} proxy did not become ready: {output[-1000:]}")
 
 
 # Harness scaffolding and build droppings are not the agent's work, so they stay
@@ -123,58 +129,6 @@ def isolation_mcp_config_path(attempt_dir):
     return Path(attempt_dir).resolve() / "isolation-mcp.json"
 
 
-def clear_session(session_id: str, cwd: Path, output_path: Path, timeout=20):
-    pid, fd = pty.fork()
-    if pid == 0:
-        os.chdir(cwd)
-        os.execvp("claude", ["claude", "--resume", session_id])
-    transcript = bytearray()
-    deadline = time.time() + timeout
-    write_failed = False
-    sent_clear = False
-    sent_exit = False
-    try:
-        while time.time() < deadline:
-            readable, _, _ = select.select([fd], [], [], 0.5)
-            if readable:
-                try:
-                    transcript.extend(os.read(fd, 65536))
-                except OSError:
-                    break
-            if not sent_clear and time.time() > deadline - timeout + 2:
-                os.write(fd, b"/clear\r")
-                sent_clear = True
-            elif sent_clear and not sent_exit and time.time() > deadline - timeout + 6:
-                os.write(fd, b"/exit\r")
-                sent_exit = True
-    finally:
-        try:
-            reaped, _ = os.waitpid(pid, os.WNOHANG)
-            if reaped == 0:
-                os.kill(pid, signal.SIGTERM)
-                for _ in range(10):
-                    reaped, _ = os.waitpid(pid, os.WNOHANG)
-                    if reaped:
-                        break
-                    time.sleep(0.1)
-                if not reaped:
-                    os.kill(pid, signal.SIGKILL)
-                    os.waitpid(pid, 0)
-        except (ChildProcessError, ProcessLookupError):
-            pass
-        try:
-            os.close(fd)
-        except OSError:
-            pass
-    captured = bytes(transcript)
-    output_path.write_bytes(captured)
-    return {
-        "command_sent": sent_clear,
-        "write_failed": write_failed,
-        "resume_marker_observed": clear_succeeded(captured),
-    }
-
-
 def run_attempt(root: Path, condition, attempt_dir: Path, *, max_turns=50,
                 api_mode=False, nonce=None, port=8787, disable_prompt_caching=True,
                 isolation_tools=(), isolation_mcp=False, max_budget_usd=None):
@@ -186,15 +140,16 @@ def run_attempt(root: Path, condition, attempt_dir: Path, *, max_turns=50,
     if "{max_turns}" not in prompt:
         raise RuntimeError("master prompt must declare the turn budget via {max_turns}")
     prompt = prompt.replace("{max_turns}", str(max_turns))
-    if spec.activate_caveman:
-        prompt = "Use the caveman skill in full mode for the entire task.\n\n" + prompt
+    if spec.prompt_prefix:
+        prompt = spec.prompt_prefix + prompt
     prompt += "\n" + spec.prompt_overlay
     (attempt_dir / "effective-prompt.md").write_text(prompt)
-    if spec.rtk_hook:
-        settings = worktree / ".claude/settings.json"
-        settings.parent.mkdir(parents=True, exist_ok=True)
-        settings.write_text(json.dumps({"hooks": {"PreToolUse": [{
-            "matcher": "Bash", "hooks": [{"type": "command", "command": "rtk hook claude"}]
+    if spec.hook:
+        settings_path = worktree / ".claude/settings.json"
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        settings_path.write_text(json.dumps({"hooks": {spec.hook.get("event", "PreToolUse"): [{
+            "matcher": spec.hook["matcher"],
+            "hooks": [{"type": "command", "command": spec.hook["command"]}]
         }]}}, indent=2) + "\n")
     session_id = str(uuid.uuid4())
     command = ["claude", "-p", "--model", "claude-sonnet-5", "--effort", "medium",
@@ -212,8 +167,8 @@ def run_attempt(root: Path, condition, attempt_dir: Path, *, max_turns=50,
             root / "benchmark/runner/isolation_mcp_server.py", nonce
         ), indent=2, sort_keys=True) + "\n")
         command.extend(["--mcp-config", str(mcp_path), "--strict-mcp-config"])
-    if spec.load_caveman:
-        command.extend(["--plugin-dir", str(resolve_caveman_plugin_dir())])
+    if spec.plugin:
+        command.extend(["--plugin-dir", str(resolve_plugin_dir(spec.plugin))])
     environment = os.environ.copy()
     environment.pop("ANTHROPIC_BASE_URL", None)
     if api_mode:
@@ -221,10 +176,10 @@ def run_attempt(root: Path, condition, attempt_dir: Path, *, max_turns=50,
             environment, disable_prompt_caching=disable_prompt_caching
         )
     proxy = None
-    if spec.headroom_mode:
-        proxy = _start_headroom(root, True, attempt_dir / "optimizer.jsonl", port=port)
+    if spec.proxy:
+        proxy = _start_proxy(root, spec.proxy, attempt_dir / "optimizer.jsonl", port=port)
         environment["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{port}"
-        environment["ENABLE_TOOL_SEARCH"] = "true"
+        environment.update(spec.proxy.get("env", {}))
     started = time.time()
     try:
         result = subprocess.run(command, cwd=worktree, env=environment, input=prompt,
@@ -258,15 +213,6 @@ def run_attempt(root: Path, condition, attempt_dir: Path, *, max_turns=50,
     ).stdout.splitlines()
     # Everything from here on is bookkeeping. A completed run has already been paid
     # for, so a failure in housekeeping is recorded, never raised.
-    try:
-        clear_evidence = clear_session(session_id, worktree, attempt_dir / "clear.log")
-    except OSError as error:
-        clear_evidence = {"command_sent": False, "write_failed": True,
-                          "resume_marker_observed": False, "error": str(error)}
-    log_path = attempt_dir / "clear.log"
-    parsed["clear_succeeded"] = clear_succeeded(log_path.read_bytes()) if log_path.exists() else False
-    parsed["clear_command_sent"] = clear_evidence["command_sent"]
-    parsed["clear_resume_marker_observed"] = clear_evidence["resume_marker_observed"]
     try:
         transcript_summary = archive_transcript(session_id, attempt_dir / "transcript.jsonl")
     except RuntimeError as error:

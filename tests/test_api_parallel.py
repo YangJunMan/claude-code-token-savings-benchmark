@@ -5,8 +5,6 @@ from unittest.mock import patch
 
 from benchmark.runner.api_parallel import (
     REPRODUCTION_PLAN,
-    API_CONDITIONS,
-    build_jobs,
     build_reproduction_jobs,
     require_api_key,
     require_paid_run_confirmation,
@@ -20,25 +18,29 @@ from benchmark.runner.claude import (
 
 
 class ApiParallelTests(unittest.TestCase):
-    def test_build_jobs_has_one_unique_nonce_per_condition(self):
-        jobs = build_jobs(max_turns=12)
-        self.assertEqual([job["condition"] for job in jobs], API_CONDITIONS)
+    def test_each_job_carries_its_own_cache_isolation_nonce(self):
+        """Runs share one account, so the only thing keeping one run's prompt
+        cache out of the next is a per-job nonce."""
+        jobs = build_reproduction_jobs(max_turns=12)
+
         self.assertEqual(len({job["nonce"] for job in jobs}), len(jobs))
         self.assertTrue(all(job["max_turns"] == 12 for job in jobs))
 
-    def test_natural_cache_jobs_leave_provider_prompt_caching_enabled(self):
-        jobs = build_jobs(max_turns=12, disable_prompt_caching=False)
+    def test_reproduction_leaves_provider_prompt_caching_enabled(self):
+        """Disabling the cache would zero out cache_read and make the visitor's
+        numbers incomparable to the published ones."""
+        jobs = build_reproduction_jobs(max_turns=12)
+
         self.assertTrue(all(job["disable_prompt_caching"] is False for job in jobs))
 
-    def test_natural_cache_jobs_carry_the_same_tool_prefix_isolation_variant(self):
-        jobs = build_jobs(
-            max_turns=12, disable_prompt_caching=False,
-            isolation_tools=("WebSearch",),
-        )
+    def test_reproduction_jobs_hold_the_tool_prefix_isolation_variant(self):
+        jobs = build_reproduction_jobs(max_turns=12)
+
         self.assertTrue(all(job["isolation_tools"] == ("WebSearch",) for job in jobs))
 
-    def test_natural_cache_jobs_have_unique_mcp_tool_prefix_salts(self):
-        jobs = build_jobs(max_turns=12, disable_prompt_caching=False, isolation_mcp=True)
+    def test_reproduction_jobs_have_unique_mcp_tool_prefix_salts(self):
+        jobs = build_reproduction_jobs(max_turns=12)
+
         configs = [build_isolation_mcp_config("/tmp/sentinel.py", job["nonce"]) for job in jobs]
         names = [next(iter(config["mcpServers"].values()))["args"][1] for config in configs]
         self.assertEqual(len(set(names)), len(jobs))

@@ -1,0 +1,2 @@
+run_date,run_id,condition,cost_usd,quality_score,critical_pass,turns,measurable,reconcile_observed,reconcile_opening,reconcile_output,reconcile_tool_result,reconcile_discarded
+pilot-2026-09-05,BASE-01,BASE,1.7111717,94,5/6,27,1,1831151,719238,915690,196223,0

@@ -3,8 +3,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from benchmark.runner.cli import is_acceptable_result, next_condition, washout_eligible_at
-from benchmark.runner.contracts import Condition, load_config
+from benchmark.runner.cli import (
+    batch_run_root, is_acceptable_result, next_condition, washout_eligible_at)
+from benchmark.runner.conditions import condition
+from benchmark.runner.contracts import load_config
 
 
 class CliResultTests(unittest.TestCase):
@@ -71,7 +73,7 @@ class CliResultTests(unittest.TestCase):
         config = load_config(Path("benchmark/config.json"))
         with tempfile.TemporaryDirectory() as directory:
             run_root = Path(directory)
-            first = run_root / Condition.BASE.value / "attempt-01"
+            first = run_root / condition("BASE").value / "attempt-01"
             first.mkdir(parents=True)
             (first / "result.json").write_text(json.dumps({
                 "returncode": 0,
@@ -81,13 +83,16 @@ class CliResultTests(unittest.TestCase):
                 "changed_files": ["gpu_platform/admission.py"],
                 "transcript_summary": {"first_turn_cache_read_tokens": 0},
             }))
-            self.assertEqual(next_condition(config, run_root), Condition.H_ON)
+            repeated = run_root / condition("BASE").value / "attempt-02"
+            repeated.mkdir(parents=True)
+            (repeated / "result.json").write_text((first / "result.json").read_text())
+            self.assertEqual(next_condition(config, run_root), condition("H-ON"))
 
     def test_restart_preserves_washout_from_previous_acceptable_result(self):
         config = load_config(Path("benchmark/config.json"))
         with tempfile.TemporaryDirectory() as directory:
             run_root = Path(directory)
-            first = run_root / Condition.BASE.value / "attempt-01"
+            first = run_root / condition("BASE").value / "attempt-01"
             first.mkdir(parents=True)
             (first / "result.json").write_text(json.dumps({
                 "returncode": 0,
@@ -98,12 +103,15 @@ class CliResultTests(unittest.TestCase):
                 "changed_files": ["gpu_platform/admission.py"],
                 "transcript_summary": {"first_turn_cache_read_tokens": 0},
             }))
+            repeated = run_root / condition("BASE").value / "attempt-02"
+            repeated.mkdir(parents=True)
+            (repeated / "result.json").write_text((first / "result.json").read_text())
             self.assertEqual(
-                washout_eligible_at(config, run_root, Condition.H_ON),
+                washout_eligible_at(config, run_root, condition("H-ON")),
                 5200,
             )
 
-            second = run_root / Condition.H_ON.value / "attempt-01"
+            second = run_root / condition("H-ON").value / "attempt-01"
             second.mkdir(parents=True)
             (second / "result.json").write_text(json.dumps({
                 "returncode": 1,
@@ -112,7 +120,69 @@ class CliResultTests(unittest.TestCase):
                 "clear_succeeded": True,
                 "transcript_summary": {"first_turn_cache_read_tokens": 0},
             }))
-            self.assertEqual(next_condition(config, run_root), Condition.H_ON)
+            self.assertEqual(next_condition(config, run_root), condition("H-ON"))
+
+ACCEPTABLE = {
+    "returncode": 0, "terminal_reason": "completed", "public_returncode": 0,
+    "final_text": "Changed files: gpu_platform/admission.py",
+    "changed_files": ["gpu_platform/admission.py"],
+    "last_request_epoch": 1000,
+    "transcript_summary": {"first_turn_cache_read_tokens": 0},
+}
+
+
+def record_attempt(run_root, condition_id, attempt):
+    directory = run_root / condition_id / f"attempt-{attempt:02d}"
+    directory.mkdir(parents=True)
+    (directory / "result.json").write_text(json.dumps(ACCEPTABLE))
+
+
+class RepeatTests(unittest.TestCase):
+    """The spread between two identical runs is the floor every saving has to
+    clear.  A runner that stops after one sample cannot produce that floor."""
+
+    def test_a_condition_repeats_until_its_declared_count_is_met(self):
+        config = load_config(Path("benchmark/config.json"))
+        with tempfile.TemporaryDirectory() as directory:
+            run_root = Path(directory)
+            record_attempt(run_root, "BASE", 1)
+
+            self.assertEqual(next_condition(config, run_root), condition("BASE"))
+
+    def test_the_next_condition_follows_once_the_repeats_are_complete(self):
+        config = load_config(Path("benchmark/config.json"))
+        with tempfile.TemporaryDirectory() as directory:
+            run_root = Path(directory)
+            record_attempt(run_root, "BASE", 1)
+            record_attempt(run_root, "BASE", 2)
+
+            self.assertEqual(next_condition(config, run_root), condition("H-ON"))
+
+
+class BatchTests(unittest.TestCase):
+    """Weekly repetition needs a fresh run root; reusing one makes the second
+    week look already finished."""
+
+    def test_each_batch_gets_its_own_directory(self):
+        root = Path("/tmp/bench")
+
+        self.assertEqual(
+            batch_run_root(root, "2026-09-05"), root / "benchmark/runs/2026-09-05"
+        )
+
+    def test_a_finished_batch_does_not_block_the_next_one(self):
+        config = load_config(Path("benchmark/config.json"))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            finished = batch_run_root(root, "2026-09-05")
+            for item in config.conditions:
+                for attempt in range(1, item.repeat + 1):
+                    record_attempt(finished, item.value, attempt)
+            self.assertIsNone(next_condition(config, finished))
+
+            fresh = batch_run_root(root, "2026-09-12")
+
+            self.assertEqual(next_condition(config, fresh), condition("BASE"))
 
 
 if __name__ == "__main__":
