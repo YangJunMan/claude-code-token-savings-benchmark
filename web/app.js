@@ -89,8 +89,7 @@ function hoverable(node, html) {
 
 /* ---------- state ---------- */
 
-const state = { activity: [], summary: [], comparison: [], runId: null,
-  revealed: Infinity, view: "overview" };
+const state = { activity: [], summary: [], comparison: [], runId: null, view: "overview" };
 
 const toolsOf = (row) => (row.tools ? row.tools.split(" ").filter(Boolean) : []);
 
@@ -152,10 +151,6 @@ function turnsFor(runId) {
   return state.activity
     .filter((r) => `${r.run_date}/${r.run_id}` === runId)
     .sort((a, b) => num(a.turn) - num(b.turn));
-}
-
-function visibleTurns() {
-  return turnsFor(state.runId).slice(0, state.revealed);
 }
 
 /* ---------- aggregation ----------
@@ -675,13 +670,12 @@ function drawReport(data) {
 /* ---------- run charts ---------- */
 
 function drawTimeline(turns) {
-  const all = turnsFor(state.runId);
   const padL = 64, padR = 16, padT = 14, padB = 34;
   const bw = 22, gap = 6;
-  const width = Math.max(720, padL + padR + all.length * (bw + gap));
+  const width = Math.max(720, padL + padR + turns.length * (bw + gap));
   const height = 260, plot = height - padT - padB;
   const svg = frame("timeline", width, height);
-  const max = Math.max(1, ...all.map((r) => num(r.context_tax_tokens)));
+  const max = Math.max(1, ...turns.map((r) => num(r.context_tax_tokens)));
 
   for (let i = 0; i <= 4; i++) {
     const y = padT + (plot * i) / 4;
@@ -691,7 +685,7 @@ function drawTimeline(turns) {
   }
   el("line", { x1: padL, y1: padT + plot, x2: width - padR, y2: padT + plot, class: "axis-line" }, svg);
 
-  const peak = all.reduce((a, b) => (num(a.context_tax_tokens) > num(b.context_tax_tokens) ? a : b), all[0]);
+  const peak = turns.reduce((a, b) => (num(a.context_tax_tokens) > num(b.context_tax_tokens) ? a : b), turns[0]);
   turns.forEach((row) => {
     const i = num(row.turn) - 1;
     const v = num(row.context_tax_tokens);
@@ -716,13 +710,12 @@ function drawTimeline(turns) {
 }
 
 function drawGrowth(turns) {
-  const all = turnsFor(state.runId);
   const padL = 64, padR = 16, padT = 14, padB = 34;
-  const width = Math.max(720, padL + padR + all.length * 28);
+  const width = Math.max(720, padL + padR + turns.length * 28);
   const height = 220, plot = height - padT - padB;
   const svg = frame("growth", width, height);
-  const max = Math.max(1, ...all.map((r) => num(r.context_tokens)));
-  const step = all.length > 1 ? (width - padL - padR) / (all.length - 1) : 0;
+  const max = Math.max(1, ...turns.map((r) => num(r.context_tokens)));
+  const step = turns.length > 1 ? (width - padL - padR) / (turns.length - 1) : 0;
   const px = (i) => padL + i * step;
   const py = (v) => padT + plot - (v / max) * plot;
 
@@ -957,11 +950,11 @@ function render() {
   drawReconcileCheck();
   drawRunDelta(data);
   drawReport(data);
-  const turns = visibleTurns();
+  const turns = turnsFor(state.runId);
   drawTimeline(turns);
   drawGrowth(turns);
   drawTools(turns);
-  drawTable(turnsFor(state.runId));
+  drawTable(turns);
 }
 
 function showView(view) {
@@ -972,17 +965,6 @@ function showView(view) {
     b.setAttribute("aria-selected", String(b.dataset.view === state.view));
   });
   if (location.hash.slice(1) !== state.view) location.hash = state.view;
-}
-
-function play() {
-  const total = turnsFor(state.runId).length;
-  if (!total) return;
-  state.revealed = 0;
-  const timer = setInterval(() => {
-    state.revealed += 1;
-    render();
-    if (state.revealed >= total) { clearInterval(timer); state.revealed = Infinity; }
-  }, 90);
 }
 
 /* ---------- boot ---------- */
@@ -1031,8 +1013,7 @@ async function boot() {
     select.appendChild(group);
   });
   state.runId = ids[0] || null;
-  select.addEventListener("change", () => { state.runId = select.value; state.revealed = Infinity; render(); });
-  document.getElementById("play").addEventListener("click", play);
+  select.addEventListener("change", () => { state.runId = select.value; render(); });
 
   document.querySelectorAll("#tabs button").forEach((b) => {
     b.addEventListener("click", () => showView(b.dataset.view));
