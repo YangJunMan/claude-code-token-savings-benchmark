@@ -3,8 +3,8 @@ from pathlib import Path
 import shutil
 import subprocess
 
+from .claude import resolve_plugin_dir, resolve_proxy_binary
 from .contracts import load_config
-from .claude import resolve_headroom_binary
 
 
 def command_version(command):
@@ -15,18 +15,43 @@ def command_version(command):
     return {"path": path, "version": (result.stdout or result.stderr).strip()}
 
 
+def optimizer_tools(root: Path, conditions):
+    """Report the tool each declared condition needs, without naming any of them.
+
+    ``requires`` is what the user would have to install, which is not always the
+    optimizer's label: a hook declares an arbitrary command line.  Diagnostics
+    quote it so "missing" points at something installable.
+    """
+    tools = {}
+    for condition in conditions:
+        settings = condition.settings
+        requires = condition.optimizer
+        try:
+            if condition.mechanism == "proxy":
+                requires = settings["binary"]
+                binary = resolve_proxy_binary(root, settings)
+                info = {
+                    "path": str(binary),
+                    "version": subprocess.run([str(binary), "--version"], text=True,
+                                              capture_output=True).stdout.strip(),
+                }
+            elif condition.mechanism == "plugin":
+                info = {"path": str(resolve_plugin_dir(settings)), "version": None}
+            elif condition.mechanism == "hook":
+                requires = settings["command"].split()[0]
+                info = command_version(requires)
+            else:
+                continue
+        except RuntimeError:
+            info = {"path": None, "version": None}
+        tools[condition.optimizer] = dict(info, requires=requires)
+    return tools
+
+
 def run_preflight(root=Path(".")):
     config = load_config(root / "benchmark/config.json")
-    try:
-        headroom = resolve_headroom_binary(root)
-    except RuntimeError:
-        headroom = None
-    tools = {
-        "claude": command_version("claude"),
-        "rtk": command_version("rtk"),
-        "headroom": {"path": str(headroom) if headroom else None,
-                     "version": subprocess.run([str(headroom), "--version"], text=True, capture_output=True).stdout.strip() if headroom else None},
-    }
+    tools = {"claude": command_version("claude")}
+    tools.update(optimizer_tools(root, config.conditions))
     errors = [name for name, info in tools.items() if not info["path"]]
     if config.washout_seconds != 4200:
         errors.append("washout_seconds")

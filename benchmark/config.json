@@ -4,16 +4,69 @@
   "max_turns": 50,
   "washout_seconds": 4200,
   "conditions": [
-    "BASE",
-    "H-ON",
-    "C-FULL",
-    "C-BRIEF",
-    "R-ON"
-  ],
-  "baseline_attempts": 2,
-  "budget_usd": 14.0,
-  "target_output_min": 30000,
-  "target_output_max": 60000,
-  "target_input_related_min": 600000,
-  "target_input_related_max": 1000000
+    {
+      "id": "BASE",
+      "label": "Baseline",
+      "optimizer": "none",
+      "mechanism": "none",
+      "repeat": 2
+    },
+    {
+      "id": "H-ON",
+      "label": "Headroom optimized",
+      "optimizer": "headroom",
+      "mechanism": "proxy",
+      "proxy": {
+        "binary": "headroom",
+        "env_override": "HEADROOM_BIN",
+        "args": [
+          "proxy",
+          "--port",
+          "{port}",
+          "--mode",
+          "cache",
+          "--no-cache",
+          "--no-subscription-tracking",
+          "--log-file",
+          "{log_path}"
+        ],
+        "ready_path": "/readyz",
+        "env": {
+          "ENABLE_TOOL_SEARCH": "true"
+        }
+      },
+      "repeat": 2
+    },
+    {
+      "id": "C-FULL",
+      "label": "Caveman full",
+      "optimizer": "caveman",
+      "mechanism": "plugin",
+      "plugin": {
+        "path_glob": "~/.claude/plugins/cache/caveman/caveman/*/plugins/caveman",
+        "env_override": "CAVEMAN_PLUGIN_DIR",
+        "prompt_prefix": "Use the caveman skill in full mode for the entire task.\n\n"
+      }
+    },
+    {
+      "id": "C-BRIEF",
+      "label": "Be brief",
+      "optimizer": "brief",
+      "mechanism": "overlay",
+      "overlay": {
+        "file": "benchmark/prompts/be-brief.txt"
+      }
+    },
+    {
+      "id": "R-ON",
+      "label": "RTK on",
+      "optimizer": "rtk",
+      "mechanism": "hook",
+      "hook": {
+        "event": "PreToolUse",
+        "matcher": "Bash",
+        "command": "rtk hook claude"
+      }
+    }
+  ]
 }

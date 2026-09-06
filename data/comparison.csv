@@ -1,0 +1,5 @@
+run_date,condition,runs,baseline_runs,processed_delta_pct,cost_delta_pct,tax_delta_pct,quality_delta,noise_processed_pct,noise_cost_pct
+2026-09-06,C-BRIEF,1,2,2.9973,-3.2006,1.5541,6.5,8.7872,2.0255
+2026-09-06,C-FULL,1,2,-7.0116,-5.137,24.2134,0.5,8.7872,2.0255
+2026-09-06,H-ON,2,2,6.1604,11.2718,1.1468,4.5,8.7872,2.0255
+2026-09-06,R-ON,1,2,-19.7867,-13.498,-28.1554,2.5,8.7872,2.0255

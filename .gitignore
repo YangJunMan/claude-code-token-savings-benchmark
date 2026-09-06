@@ -24,3 +24,6 @@ benchmark/reports-api-natural/
 benchmark/reports-api-natural-v2/
 benchmark/reports-api-natural-v3-failed-mcp-path/
 benchmark/reports/checksums.sha256
+
+# Per-batch report output; the published record is data/*.csv
+benchmark/reports/*/
