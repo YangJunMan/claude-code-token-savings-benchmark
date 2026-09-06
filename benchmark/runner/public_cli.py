@@ -11,7 +11,8 @@ from .api_parallel import (
     require_paid_run_confirmation,
     run_reproduction,
 )
-from .claude import resolve_caveman_plugin_dir, resolve_headroom_binary
+from .conditions import conditions as declared_conditions
+from .preflight import optimizer_tools
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -33,23 +34,28 @@ def estimate(max_turns=50):
     }
 
 
-def paid_preflight(root=ROOT):
+def paid_preflight(root=ROOT, conditions=None):
+    """Check every tool the declared conditions actually need.
+
+    The tool list is derived from the declarations rather than hardcoded, so a
+    newly declared optimizer is caught here instead of failing midway through a
+    paid run.
+    """
     errors = []
     tools = {}
     if os.name != "posix":
         errors.append("unsupported_os: macOS/Linux POSIX required")
-    for name in ("claude", "rtk", "git", "curl"):
+    for name in ("claude", "git", "curl"):
         tools[name] = shutil.which(name)
         if not tools[name]:
             errors.append(f"missing_tool: {name}")
-    try:
-        tools["headroom"] = str(resolve_headroom_binary(root))
-    except RuntimeError as error:
-        errors.append(str(error))
-    try:
-        tools["caveman"] = str(resolve_caveman_plugin_dir())
-    except RuntimeError as error:
-        errors.append(str(error))
+    conditions = declared_conditions() if conditions is None else conditions
+    # Shared with the weekly runner's preflight so a newly declared optimizer
+    # cannot be checked by one entry point and skipped by the other.
+    for name, info in optimizer_tools(root, conditions.values()).items():
+        tools[name] = info["path"]
+        if not info["path"]:
+            errors.append(f"missing_tool: {info['requires']}")
     required = [
         root / "benchmark/prompts/master.md",
         root / "benchmark/runner/isolation_mcp_server.py",
