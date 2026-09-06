@@ -11,6 +11,9 @@
 측정값과 실행 코드, 채점 기준을 모두 공개합니다. 믿어 달라고 하는 대신 **직접 다시
 계산하고 다시 실험해 볼 수 있게** 만들었습니다.
 
+**→ 결과 보기: <https://yangjunman.github.io/claude-code-token-savings-benchmark/>**
+설치도, API key도, 클론도 필요 없습니다.
+
 ## 목차
 
 - [빠른 시작](#빠른-시작)
@@ -22,6 +25,10 @@
 - [License](#license)
 
 ## 빠른 시작
+
+**결과만 볼 때** — <https://yangjunman.github.io/claude-code-token-savings-benchmark/>
+
+**직접 검증할 때**
 
 ```bash
 git clone https://github.com/YangJunMan/claude-code-token-savings-benchmark.git
@@ -37,23 +44,25 @@ macOS 또는 Linux에 Git과 Python 3.9 이상이면 됩니다.
 
 | | 할 수 있는 일 | API key | 비용 |
 |---|---|:---:|:---:|
-| 1 | 브라우저에서 턴별 토큰 소모 보기 | 불필요 | 무료 |
+| 1 | 브라우저에서 턴별 토큰 소모 보기 | 불필요 | 무료 · 설치 없음 |
 | 2 | 공개 측정값으로 결과표 다시 계산 | 불필요 | 무료 |
 | 3 | 같은 실험 직접 재실행 | 필요 | 유료 |
 | 4 | 새 절약법 추가해 실험 | 필요 | 유료 |
 
 ### 1. 브라우저에서 보기
 
-결과표가 말해 주는 것은 "얼마나 줄었나"뿐입니다. **어디서** 줄었는지 보려면:
+결과표가 말해 주는 것은 "얼마나 줄었나"뿐입니다. **어디서** 줄었는지 보려면
+<https://yangjunman.github.io/claude-code-token-savings-benchmark/>를 열면 됩니다.
+
+저장소를 클론했다면 로컬에서도 같은 페이지를 볼 수 있습니다.
 
 ```bash
 python3 -m http.server 8765
 # 브라우저에서 http://127.0.0.1:8765/web/
 ```
 
-턴별 context tax, 컨텍스트가 불어나는 과정, 다시 청구된 컨텍스트의 출처, 툴별 누적
-tax를 보여 주고, **진행 과정 재생**으로 턴을 하나씩 따라갈 수 있습니다. 설치할
-의존성도, 거쳐야 할 빌드 단계도 없습니다.
+조건별 평균 비교부터 실행 하나의 턴별 context tax까지 내려갑니다. 설치할 의존성도,
+거쳐야 할 빌드 단계도 없습니다.
 
 > `index.html`을 더블클릭해 `file://`로 열면 브라우저가 CSV 읽기를 막습니다.
 > 반드시 위 명령으로 서버를 띄우세요.
