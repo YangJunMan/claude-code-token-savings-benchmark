@@ -7,7 +7,7 @@ from benchmark.runner.contracts import build_conditions, load_conditions
 from benchmark.runner.api_parallel import build_reproduction_plan
 from benchmark.runner.conditions import build_condition
 from benchmark.runner.preflight import optimizer_tools, run_preflight
-from benchmark.runner.public_cli import paid_preflight
+from benchmark.runner.public_cli import BASE_TOOLS, paid_preflight
 
 
 BASE_DECLARATION = {"id": "BASE", "label": "Baseline", "optimizer": "none",
@@ -18,6 +18,17 @@ def write_config(conditions):
     path = Path(tempfile.mkdtemp()) / "config.json"
     path.write_text(json.dumps({"conditions": conditions}))
     return path
+
+
+def missing_optimizers(result):
+    """Optimizer tools preflight reported missing, ignoring the base toolchain.
+
+    ``claude``/``git``/``curl`` are environmental: a CI runner has no Claude
+    Code installed, and counting it here would make these tests assert about
+    the machine rather than about the declarations.
+    """
+    return {name.split(": ")[1] for name in result["errors"]
+            if name.startswith("missing_tool")} - set(BASE_TOOLS)
 
 
 class LoadConditionsTest(unittest.TestCase):
@@ -81,9 +92,7 @@ class PreflightFollowsDeclarationsTest(unittest.TestCase):
     def test_a_baseline_only_config_needs_no_optimizer_tool(self):
         result = paid_preflight(conditions=build_conditions([BASE_DECLARATION]))
 
-        self.assertEqual(
-            [error for error in result["errors"] if error.startswith("missing_tool")], []
-        )
+        self.assertEqual(missing_optimizers(result), set())
 
 
 class ReproductionPlanTest(unittest.TestCase):
@@ -146,8 +155,7 @@ class AddingASkillTouchesNoPythonTest(unittest.TestCase):
 
         self.assertEqual(
             {info["requires"] for info in tools.values() if not info["path"]},
-            {name.split(": ")[1] for name in paid["errors"]
-             if name.startswith("missing_tool")},
+            missing_optimizers(paid),
         )
 
 

@@ -34,6 +34,12 @@ def estimate(max_turns=50):
     }
 
 
+# Present on any developer machine, unrelated to which optimizers are declared.
+# CI runners have git and curl but no Claude Code, so tests about declaration
+# handling must not read a missing entry here as a missing optimizer.
+BASE_TOOLS = ("claude", "git", "curl")
+
+
 def paid_preflight(root=ROOT, conditions=None):
     """Check every tool the declared conditions actually need.
 
@@ -45,7 +51,7 @@ def paid_preflight(root=ROOT, conditions=None):
     tools = {}
     if os.name != "posix":
         errors.append("unsupported_os: macOS/Linux POSIX required")
-    for name in ("claude", "git", "curl"):
+    for name in BASE_TOOLS:
         tools[name] = shutil.which(name)
         if not tools[name]:
             errors.append(f"missing_tool: {name}")
