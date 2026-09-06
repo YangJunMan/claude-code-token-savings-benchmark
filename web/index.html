@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>토큰 절약 실험 관측소</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="head-row">
+    <div>
+      <h1>토큰 절약 실험 관측소</h1>
+      <p class="sub">Claude Code의 토큰 절약법이 <strong>어느 활동에서</strong> 토큰을 아끼는지 턴 단위로 측정합니다.</p>
+    </div>
+    <button id="theme" type="button" aria-pressed="false">다크 모드</button>
+  </div>
+  <nav class="tabs" id="tabs">
+    <button type="button" data-view="overview" aria-selected="true">개요</button>
+    <button type="button" data-view="run" aria-selected="false">실행 상세</button>
+  </nav>
+</header>
+
+<!-- ===================== 개요 ===================== -->
+<main id="view-overview">
+
+  <section class="card">
+    <h2>지금까지의 결과</h2>
+    <p class="verdict" id="verdict">—</p>
+    <p class="hero-note" id="verdict-note"></p>
+  </section>
+
+  <section class="card">
+    <h2>누적 현황</h2>
+    <div class="kpi-row" id="corpus-kpis"></div>
+  </section>
+
+  <section class="card">
+    <h2>BASE 대비 조건별 평균</h2>
+    <p class="muted">각 회차 안에서 그 회차의 BASE 평균과 견준 뒤, 회차별 차이를 다시 평균했습니다.
+    왼쪽이 절감, 오른쪽이 증가입니다.</p>
+    <div class="legend" id="delta-legend"></div>
+    <div class="scroll-x"><svg id="delta" role="img" aria-label="조건별 BASE 대비 차이"></svg></div>
+    <p class="muted" id="delta-note"></p>
+  </section>
+
+  <section class="card">
+    <h2>조건별 요약</h2>
+    <p class="muted">noise floor는 같은 회차에서 조건이 똑같은 BASE 실행끼리 벌어진 폭입니다.
+    차이가 이 폭 안에 있으면 조건의 효과로 읽을 수 없습니다.</p>
+    <div class="scroll-x"><table id="condition-table"></table></div>
+    <p class="muted">평균 열은 모든 회차를 합친 값이고, vs BASE 열은 각 회차 안에서 그 회차의
+    BASE와 비교한 뒤 평균한 값입니다. 회차마다 BASE가 다르므로 두 열을 직접 나눠 보면 맞지 않습니다.</p>
+    <p class="muted">여기의 처리 토큰은 <strong>주 모델(Sonnet 5)의 턴 합계</strong>입니다.
+    Claude Code가 부수적으로 쓰는 보조 모델(Haiku 4.5, 실행당 약 0.1%)은 턴으로 분해되지 않아
+    빠져 있습니다. <code>docs/GENERATED_RESULTS.md</code>의 표는 두 모델을 합산하므로 소수점에서
+    갈립니다.</p>
+  </section>
+
+  <section class="card">
+    <h2>회차별 추세</h2>
+    <p class="muted">회차가 쌓이면 조건별 선이 길어집니다. 코드 수정은 필요 없습니다.</p>
+    <div class="legend" id="trend-legend"></div>
+    <div class="scroll-x"><svg id="trend" role="img" aria-label="회차별 조건 비교 추세"></svg></div>
+    <p class="muted" id="trend-note"></p>
+  </section>
+
+  <section class="card" id="explainer">
+    <h2>핵심 지표: context tax</h2>
+    <p class="sub">tool result가 컨텍스트를 키우면 그 비용은 한 번으로 끝나지 않습니다.
+    남은 턴이 모두 그 내용을 다시 읽기 때문에 <strong>턴 수만큼 거듭 청구</strong>됩니다.
+    합계만 보여 주는 결과표에는 이 숫자가 드러나지 않습니다.</p>
+    <p class="muted">턴 컨텍스트 = input + cache_creation + cache_read (provider 보고값) ·
+    result = 컨텍스트 증가분 − 직전 턴 output · tax = result × 이후 남은 턴 수</p>
+  </section>
+
+</main>
+
+<!-- ===================== 실행 상세 ===================== -->
+<main id="view-run" hidden>
+
+  <div class="controls">
+    <label for="run">실행</label>
+    <select id="run"></select>
+    <button id="play" type="button">진행 과정 재생</button>
+  </div>
+
+  <section class="card">
+    <h2>실행 요약</h2>
+    <div class="kpi-row" id="kpis"></div>
+    <p class="muted" id="provenance"></p>
+    <p class="muted" id="reconcile-check"></p>
+  </section>
+
+  <section class="card">
+    <h2>BASE 대비</h2>
+    <p class="muted">같은 회차의 BASE 평균과 견준 것입니다. 다시 청구된 컨텍스트의 차이를
+    네 항목으로 나눕니다. 네 항목의 합은 실측 차이와 정확히 같습니다.</p>
+    <div id="delta-run"></div>
+  </section>
+
+  <section class="card">
+    <h2>실행 리포트</h2>
+    <p class="muted">모든 문장은 <code>data/activity-log.csv</code>의 실측값에서 나옵니다. 추정하지 않습니다.</p>
+    <div id="report"></div>
+  </section>
+
+  <section class="card">
+    <h2>턴별 context tax</h2>
+    <p class="muted">막대 하나가 한 턴의 tool 호출이 이후 턴들에 걸쳐 청구시킨 총량입니다.</p>
+    <div class="scroll-x"><svg id="timeline" role="img" aria-label="턴별 context tax 막대 차트"></svg></div>
+  </section>
+
+  <section class="card">
+    <h2>컨텍스트 성장</h2>
+    <p class="muted">턴이 진행되며 매 턴 모델에 다시 실리는 컨텍스트의 크기입니다.</p>
+    <div class="scroll-x"><svg id="growth" role="img" aria-label="턴별 컨텍스트 크기 곡선"></svg></div>
+  </section>
+
+  <section class="card">
+    <h2>툴별 누적 context tax</h2>
+    <div class="scroll-x"><svg id="tools" role="img" aria-label="툴별 누적 context tax"></svg></div>
+  </section>
+
+  <section class="card">
+    <details id="turn-data">
+      <summary><h2>턴 데이터</h2><span class="muted" id="table-count"></span></summary>
+      <p class="muted">차트의 모든 수치는 이 표에서, 이 표는 <code>data/activity-log.csv</code>에서 옵니다.</p>
+      <div class="table-scroll"><table id="table"></table></div>
+    </details>
+  </section>
+
+</main>
+
+</div>
+<div class="tooltip" id="tip" role="status" aria-live="polite"></div>
+<script src="app.js"></script>
+</body>
+</html>
