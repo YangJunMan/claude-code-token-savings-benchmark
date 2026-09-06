@@ -31,7 +31,11 @@ jobs:
           mkdir -p site
           cp -R web site/web
           cp -R data site/data
-          printf '<!doctype html><meta http-equiv="refresh" content="0; url=web/">\n' > site/index.html
+          # The icon link keeps the browser from probing /favicon.ico on the
+          # domain root, which 404s on the way through to /web/.
+          printf '%s\n' \
+            '<!doctype html><meta charset="utf-8"><link rel="icon" href="data:,">' \
+            '<meta http-equiv="refresh" content="0; url=web/">' > site/index.html
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
