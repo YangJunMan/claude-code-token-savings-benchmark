@@ -15,6 +15,7 @@ from benchmark.reports.activity_log import (
     with_context_tax,
 )
 from benchmark.runner.usage import parse_usage
+from benchmark.runner.contracts import is_acceptable_result
 
 
 def aux_model_tokens(result, main_model):
@@ -135,30 +136,32 @@ def collect_batch(run_root, activity_path, summary_path, comparison_path=None):
         shares = reconcile(turns)
         transcript_summary = result.get("transcript_summary") or {}
         # The main model is whichever one produced the turns being decomposed.
-        # result.json carries no model field, and modelUsage is keyed in billing
-        # order, so its first entry is often the helper model instead.
+        # modelUsage is keyed in billing order, so its first entry is often
+        # the helper model instead of the one whose context we are measuring.
         model = turns[0].model if turns else ""
         timing.append({
             "run_id": run_id,
             "started_epoch": float(result.get("started_epoch", 0) or 0),
             "last_request_epoch": float(result.get("last_request_epoch", 0) or 0),
         })
-        comparable.append({
-            "condition": condition,
-            # The same totals the page shows, so a published percentage can be
-            # rederived from the published per-turn rows.
-            "processed": sum(t.context_tokens + t.output_tokens for t in turns),
-            "tax": sum(t.context_tax_tokens for t in turns),
-            "cost": parse_usage(result).cost_usd,
-            "quality": quality.get("score", 0) or 0,
-        })
+        measurable = is_acceptable_result(result) and is_measurable(turns)
+        if measurable:
+            comparable.append({
+                "condition": condition,
+                # The same totals the page shows, so a published percentage can be
+                # rederived from the published per-turn rows.
+                "processed": sum(t.context_tokens + t.output_tokens for t in turns),
+                "tax": sum(t.context_tax_tokens for t in turns),
+                "cost": parse_usage(result).cost_usd,
+                "quality": quality.get("score", 0) or 0,
+            })
         summary.append([
             run_date, run_id, condition,
             parse_usage(result).cost_usd,
             quality.get("score", ""),
             critical_pass(quality),
             len(turns),
-            int(is_measurable(turns)),
+            int(measurable),
             shares["observed"], shares["opening"], shares["output"],
             shares["tool_result"], shares["discarded"],
             model,

@@ -125,6 +125,9 @@ make estimate
 
 ### 3. 실행
 
+모델, effort, 기본 turn 수는 `benchmark/config.json`의 `model`, `effort`,
+`max_turns`를 사용합니다. `--max-turns`를 지정하면 해당 실행의 turn 수만 덮어씁니다.
+
 아래 조건을 모두 갖춰야 실행됩니다.
 
 ```bash
@@ -147,6 +150,8 @@ python3 -m benchmark.runner.public_cli benchmark \
 - `ANTHROPIC_API_KEY`가 없으면 OAuth로 우회하지 않고 그대로 멈춥니다
 - `--run-root`는 비어 있어야 합니다. 기존 증거를 덮어쓰지 않습니다
 - 작업은 병렬이 아니라 순차로 돕니다
+- 채점이나 후처리가 실패해도 이미 발생한 비용을 기록합니다. 비용을 확인할 수 없으면
+  다음 작업을 실행하지 않습니다
 - 누적 예상 비용이 전체 예산을 넘기 전에 다음 작업을 멈추고, 각 Claude 프로세스에도
   `$2.50` 상한을 함께 넘깁니다
 
@@ -164,7 +169,8 @@ python3 -c "
 from benchmark.reports.collect import collect_batch
 from pathlib import Path
 print(collect_batch(Path('benchmark/runs/reproduction-001'),
-                    Path('data/activity-log.csv'), Path('data/run-summary.csv')))
+                    Path('data/activity-log.csv'), Path('data/run-summary.csv'),
+                    Path('data/comparison.csv')))
 "
 ```
 
