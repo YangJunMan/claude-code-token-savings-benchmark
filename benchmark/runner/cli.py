@@ -1,6 +1,8 @@
 import argparse
+import contextlib
 from datetime import date
 import json
+import os
 from pathlib import Path
 import time
 
@@ -15,6 +17,51 @@ from .state import StateStore
 
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+class RunLockedError(RuntimeError):
+    pass
+
+
+def _pid_alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # exists, just owned by someone else
+    return True
+
+
+@contextlib.contextmanager
+def run_lock(run_root: Path):
+    """Refuse a second run_all() on the same run_root instead of racing it.
+
+    Nothing else stops two processes from calling run_next() on the same
+    run_root at once - attempt numbering and state transitions are not
+    coordinated across processes. This will not survive an NFS mount (no
+    atomic O_EXCL there) and a lock left by a killed process is only cleaned
+    up the next time run_all() starts, not proactively - but it stops the
+    exact accident from the 2026-09-08 round: a process presumed dead was
+    still running `claude -p` for BASE when a fresh run_all() started a
+    second one for the same condition, unnoticed until caught by hand.
+    """
+    run_root = Path(run_root)
+    run_root.mkdir(parents=True, exist_ok=True)
+    lock_path = run_root / "run_all.lock"
+    if lock_path.exists():
+        try:
+            holder = int(lock_path.read_text().strip())
+        except ValueError:
+            holder = None
+        if holder is not None and _pid_alive(holder):
+            raise RunLockedError(
+                f"run_all is already running against {run_root} (pid {holder})")
+    lock_path.write_text(str(os.getpid()))
+    try:
+        yield
+    finally:
+        lock_path.unlink(missing_ok=True)
 
 
 def _acceptable_results(run_root, condition):
@@ -163,37 +210,38 @@ def run_next(root=ROOT, run_root=None):
 def run_all(root=ROOT, run_root=None):
     config = load_config(root / "benchmark/config.json")
     run_root = default_run_root(root, config) if run_root is None else run_root
-    finalize_existing_results(config, run_root)
-    while next_condition(config, run_root) is not None:
-        condition = next_condition(config, run_root)
-        eligible = washout_eligible_at(config, run_root, condition)
-        if time.time() < eligible:
-            StateStore(run_root).transition(
-                condition, RunState.WAITING_WASHOUT, 1, eligible_epoch=eligible)
-            while time.time() < eligible:
-                time.sleep(min(60, eligible - time.time()))
-        result = run_next(root, run_root)
-        if not result or not is_acceptable_result(result):
-            failure_text = json.dumps(result or {})
-            stderr_path = run_root / condition.value / f"attempt-{len(list((run_root / condition.value).glob('attempt-*'))):02d}" / "stderr.log"
-            if stderr_path.exists():
-                failure_text += stderr_path.read_text()
-            if classify_failure(failure_text).invalidate_attempt:
-                retry_epoch = quota_retry_at(failure_text)
+    with run_lock(run_root):
+        finalize_existing_results(config, run_root)
+        while next_condition(config, run_root) is not None:
+            condition = next_condition(config, run_root)
+            eligible = washout_eligible_at(config, run_root, condition)
+            if time.time() < eligible:
                 StateStore(run_root).transition(
-                    condition,
-                    RunState.WAITING_CLAUDE_QUOTA,
-                    len(list((run_root / condition.value).glob("attempt-*"))),
-                    eligible_epoch=retry_epoch,
-                )
-                while time.time() < retry_epoch:
-                    time.sleep(min(60, retry_epoch - time.time()))
-                continue
-            return 2
-    generate_report(run_root, root / "benchmark/reports" / run_root.name)
-    collect_batch(run_root, root / "data/activity-log.csv",
-                  root / "data/run-summary.csv", root / "data/comparison.csv")
-    return 0
+                    condition, RunState.WAITING_WASHOUT, 1, eligible_epoch=eligible)
+                while time.time() < eligible:
+                    time.sleep(min(60, eligible - time.time()))
+            result = run_next(root, run_root)
+            if not result or not is_acceptable_result(result):
+                failure_text = json.dumps(result or {})
+                stderr_path = run_root / condition.value / f"attempt-{len(list((run_root / condition.value).glob('attempt-*'))):02d}" / "stderr.log"
+                if stderr_path.exists():
+                    failure_text += stderr_path.read_text()
+                if classify_failure(failure_text).invalidate_attempt:
+                    retry_epoch = quota_retry_at(failure_text)
+                    StateStore(run_root).transition(
+                        condition,
+                        RunState.WAITING_CLAUDE_QUOTA,
+                        len(list((run_root / condition.value).glob("attempt-*"))),
+                        eligible_epoch=retry_epoch,
+                    )
+                    while time.time() < retry_epoch:
+                        time.sleep(min(60, retry_epoch - time.time()))
+                    continue
+                return 2
+        generate_report(run_root, root / "benchmark/reports" / run_root.name)
+        collect_batch(run_root, root / "data/activity-log.csv",
+                      root / "data/run-summary.csv", root / "data/comparison.csv")
+        return 0
 
 
 def main():
