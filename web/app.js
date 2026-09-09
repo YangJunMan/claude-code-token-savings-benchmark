@@ -234,6 +234,14 @@ function batchTime(label) {
 }
 const byBatch = (a, b) => batchTime(a).localeCompare(batchTime(b)) || a.localeCompare(b);
 
+/* The published arm order (benchmark/config.json). A condition not on this
+   list - some future optimizer - just sorts after the ones that are. */
+const CONDITION_ORDER = ["BASE", "H-ON", "C-FULL", "C-BRIEF", "R-ON"];
+function conditionRank(condition) {
+  const index = CONDITION_ORDER.indexOf(condition);
+  return index === -1 ? CONDITION_ORDER.length : index;
+}
+
 function buildBatches(runs) {
   const byDate = new Map();
   runs.forEach((r) => {
@@ -992,26 +1000,31 @@ async function boot() {
   }
 
   const select = document.getElementById("run");
-  const ids = [...new Set(state.activity.map((r) => `${r.run_date}/${r.run_id}`))]
-    .sort((a, b) => byBatch(a, b));
-  /* A flat list reaches hundreds of entries within a year of weekly batches. */
+  const byId = new Map(state.activity.map((r) => [`${r.run_date}/${r.run_id}`, r]));
+  const ids = [...byId.keys()].sort((a, b) => byBatch(a, b));
+  /* Grouped by condition rather than by round: a round adds one option per
+     group, not one more group, so the list stays five groups deep no matter
+     how many rounds pile up. Pick a round's detail inside its condition. */
   const groups = new Map();
   ids.forEach((id) => {
-    const [date, run] = [id.slice(0, id.indexOf("/")), id.slice(id.indexOf("/") + 1)];
-    if (!groups.has(date)) groups.set(date, []);
-    groups.get(date).push([id, run]);
+    const condition = byId.get(id).condition;
+    if (!groups.has(condition)) groups.set(condition, []);
+    groups.get(condition).push(id);
   });
-  groups.forEach((entries, date) => {
-    const group = document.createElement("optgroup");
-    group.label = date;
-    entries.forEach(([id, run]) => {
-      const option = document.createElement("option");
-      option.value = id;
-      option.textContent = run;
-      group.appendChild(option);
+  [...groups.keys()]
+    .sort((a, b) => conditionRank(a) - conditionRank(b) || a.localeCompare(b))
+    .forEach((condition) => {
+      const group = document.createElement("optgroup");
+      group.label = condition;
+      groups.get(condition).forEach((id) => {
+        const row = byId.get(id);
+        const option = document.createElement("option");
+        option.value = id;
+        option.textContent = `${row.run_date} · ${row.run_id}`;
+        group.appendChild(option);
+      });
+      select.appendChild(group);
     });
-    select.appendChild(group);
-  });
   state.runId = ids[0] || null;
   select.addEventListener("change", () => { state.runId = select.value; render(); });
 
