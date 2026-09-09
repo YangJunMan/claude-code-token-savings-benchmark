@@ -1,15 +1,25 @@
 import json
+import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from benchmark.runner.cli import (
-    batch_run_root, default_run_root, finalize_existing_results, is_acceptable_result,
-    latest_batch_run_root, next_condition, washout_eligible_at)
+    RunLockedError, batch_run_root, default_run_root, finalize_existing_results,
+    is_acceptable_result, latest_batch_run_root, next_condition, run_all, run_lock,
+    washout_eligible_at)
 from benchmark.runner.conditions import condition
 from benchmark.runner.contracts import BenchmarkConfig, Condition, RunState, load_config
 from benchmark.runner.state import StateStore
+
+
+def dead_pid():
+    """A pid guaranteed not to be running: spawned, then waited on."""
+    process = subprocess.Popen(["true"])
+    process.wait()
+    return process.pid
 
 
 class CliResultTests(unittest.TestCase):
@@ -352,3 +362,49 @@ class LatestBatchTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             self.assertEqual(latest_batch_run_root(root), batch_run_root(root))
+
+
+class RunLockTests(unittest.TestCase):
+    """Nothing else stops two run_all() processes from driving the same
+    run_root's `claude -p` at once - this is the only thing that does."""
+
+    def test_a_second_holder_is_refused_while_the_first_is_alive(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run_root = Path(directory)
+            (run_root / "run_all.lock").write_text(str(os.getpid()))
+
+            with self.assertRaises(RunLockedError):
+                with run_lock(run_root):
+                    pass
+
+    def test_a_stale_lock_from_a_dead_pid_is_reclaimed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run_root = Path(directory)
+            (run_root / "run_all.lock").write_text(str(dead_pid()))
+
+            with run_lock(run_root):
+                pass  # must not raise
+
+    def test_the_lock_is_released_on_exit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run_root = Path(directory)
+            with run_lock(run_root):
+                self.assertTrue((run_root / "run_all.lock").exists())
+            self.assertFalse((run_root / "run_all.lock").exists())
+
+    def test_the_lock_is_released_even_if_the_body_raises(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run_root = Path(directory)
+            with self.assertRaises(RuntimeError):
+                with run_lock(run_root):
+                    raise RuntimeError("boom")
+            self.assertFalse((run_root / "run_all.lock").exists())
+
+    def test_run_all_refuses_to_start_against_a_locked_run_root(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run_root = Path(directory) / "2026-09-08"
+            run_root.mkdir(parents=True)
+            (run_root / "run_all.lock").write_text(str(os.getpid()))
+
+            with self.assertRaises(RunLockedError):
+                run_all(Path("."), run_root)
