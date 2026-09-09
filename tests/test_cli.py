@@ -4,8 +4,8 @@ import unittest
 from pathlib import Path
 
 from benchmark.runner.cli import (
-    batch_run_root, is_acceptable_result, latest_batch_run_root, next_condition,
-    washout_eligible_at)
+    batch_run_root, default_run_root, is_acceptable_result, latest_batch_run_root,
+    next_condition, washout_eligible_at)
 from benchmark.runner.conditions import condition
 from benchmark.runner.contracts import BenchmarkConfig, Condition, load_config
 
@@ -194,6 +194,38 @@ class BatchTests(unittest.TestCase):
             fresh = batch_run_root(root, "2026-09-12")
 
             self.assertEqual(next_condition(config, fresh), condition("BASE"))
+
+
+class DefaultRunRootTests(unittest.TestCase):
+    """Washout alone is 70 minutes, so a round in progress crosses local
+    midnight easily. Resuming with no explicit --run-root used to abandon
+    that batch for a same-day duplicate that reran every condition."""
+
+    def test_continues_an_unfinished_batch_instead_of_starting_todays(self):
+        config = load_config(Path("benchmark/config.json"))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            unfinished = batch_run_root(root, "2026-09-08")
+            record_attempt(unfinished, "BASE", 1)
+
+            self.assertEqual(default_run_root(root, config), unfinished)
+
+    def test_starts_a_fresh_batch_once_the_latest_one_is_finished(self):
+        config = load_config(Path("benchmark/config.json"))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            finished = batch_run_root(root, "2026-09-05")
+            for item in config.conditions:
+                for attempt in range(1, item.repeat + 1):
+                    record_attempt(finished, item.value, attempt)
+
+            self.assertEqual(default_run_root(root, config), batch_run_root(root))
+
+    def test_starts_a_fresh_batch_when_none_exists_yet(self):
+        config = load_config(Path("benchmark/config.json"))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.assertEqual(default_run_root(root, config), batch_run_root(root))
 
 
 if __name__ == "__main__":
