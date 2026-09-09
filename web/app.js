@@ -89,7 +89,7 @@ function hoverable(node, html) {
 
 /* ---------- state ---------- */
 
-const state = { activity: [], summary: [], comparison: [], runId: null, view: "overview" };
+const state = { activity: [], summary: [], comparison: [], runId: null, condition: null, view: "overview" };
 
 const toolsOf = (row) => (row.tools ? row.tools.split(" ").filter(Boolean) : []);
 
@@ -946,6 +946,68 @@ function drawKpis(turns) {
 
 /* ---------- render ---------- */
 
+/* Only the five published conditions are ever clickable at the top level, no
+   matter how many rounds pile up. A round adds an entry inside its condition's
+   "날짜별 상세" list, not a new top-level choice. */
+function runsGroupedByCondition() {
+  const byId = new Map();
+  state.activity.forEach((r) => {
+    const id = `${r.run_date}/${r.run_id}`;
+    if (!byId.has(id)) byId.set(id, r);
+  });
+  const groups = new Map();
+  [...byId.entries()].sort((a, b) => byBatch(a[0], b[0])).forEach(([id, row]) => {
+    if (!groups.has(row.condition)) groups.set(row.condition, []);
+    groups.get(row.condition).push({ id, run_date: row.run_date, run_id: row.run_id });
+  });
+  return groups;
+}
+
+function drawRunPicker() {
+  const groups = runsGroupedByCondition();
+  const conditions = [...groups.keys()]
+    .sort((a, b) => conditionRank(a) - conditionRank(b) || a.localeCompare(b));
+  if (!state.condition || !groups.has(state.condition)) state.condition = conditions[0] || null;
+
+  const picker = document.getElementById("condition-picker");
+  picker.innerHTML = "";
+  conditions.forEach((condition) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = condition;
+    button.setAttribute("aria-pressed", String(condition === state.condition));
+    button.addEventListener("click", () => {
+      if (state.condition === condition) return;
+      state.condition = condition;
+      const entries = groups.get(condition);
+      state.runId = entries[entries.length - 1].id; // most recent round by default
+      render();
+    });
+    picker.appendChild(button);
+  });
+
+  const entries = state.condition ? groups.get(state.condition) : [];
+  if (!entries.some((entry) => entry.id === state.runId)) {
+    state.runId = entries.length ? entries[entries.length - 1].id : null;
+  }
+
+  const list = document.getElementById("run-picker-list");
+  list.innerHTML = "";
+  entries.forEach((entry) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = `${entry.run_date} · ${entry.run_id}`;
+    button.setAttribute("aria-pressed", String(entry.id === state.runId));
+    button.addEventListener("click", () => {
+      if (state.runId === entry.id) return;
+      state.runId = entry.id;
+      render();
+    });
+    list.appendChild(button);
+  });
+  document.getElementById("run-picker-count").textContent = `${entries.length}건`;
+}
+
 function render() {
   const data = corpus();
   drawVerdict(data);
@@ -954,6 +1016,7 @@ function render() {
   drawConditionTable(data);
   drawTrend();
 
+  drawRunPicker();
   drawKpis(turnsFor(state.runId));
   drawReconcileCheck();
   drawRunDelta(data);
@@ -998,35 +1061,6 @@ async function boot() {
        </section>`);
     return;
   }
-
-  const select = document.getElementById("run");
-  const byId = new Map(state.activity.map((r) => [`${r.run_date}/${r.run_id}`, r]));
-  const ids = [...byId.keys()].sort((a, b) => byBatch(a, b));
-  /* Grouped by condition rather than by round: a round adds one option per
-     group, not one more group, so the list stays five groups deep no matter
-     how many rounds pile up. Pick a round's detail inside its condition. */
-  const groups = new Map();
-  ids.forEach((id) => {
-    const condition = byId.get(id).condition;
-    if (!groups.has(condition)) groups.set(condition, []);
-    groups.get(condition).push(id);
-  });
-  [...groups.keys()]
-    .sort((a, b) => conditionRank(a) - conditionRank(b) || a.localeCompare(b))
-    .forEach((condition) => {
-      const group = document.createElement("optgroup");
-      group.label = condition;
-      groups.get(condition).forEach((id) => {
-        const row = byId.get(id);
-        const option = document.createElement("option");
-        option.value = id;
-        option.textContent = `${row.run_date} · ${row.run_id}`;
-        group.appendChild(option);
-      });
-      select.appendChild(group);
-    });
-  state.runId = ids[0] || null;
-  select.addEventListener("change", () => { state.runId = select.value; render(); });
 
   document.querySelectorAll("#tabs button").forEach((b) => {
     b.addEventListener("click", () => showView(b.dataset.view));

@@ -82,10 +82,15 @@
 <!-- ===================== 실행 상세 ===================== -->
 <main id="view-run" hidden>
 
-  <div class="controls">
-    <label for="run">실행 (실험 종류 › 날짜)</label>
-    <select id="run"></select>
-  </div>
+  <div class="controls" id="condition-picker" role="group" aria-label="실험 종류"></div>
+
+  <section class="card">
+    <details id="run-picker">
+      <summary><h2>날짜별 상세</h2><span class="muted" id="run-picker-count"></span></summary>
+      <p class="muted">같은 실험 종류 안에서 회차·반복을 골라 아래 상세를 그 실행으로 바꿉니다.</p>
+      <div id="run-picker-list"></div>
+    </details>
+  </section>
 
   <section class="card">
     <h2>실행 요약</h2>

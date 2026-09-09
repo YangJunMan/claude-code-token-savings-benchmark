@@ -172,16 +172,18 @@ td.bad { color: var(--critical); }
 .hidden { display: none; }
 
 /* The turn table is the longest block on the page, so it opens on demand. */
-#turn-data summary {
+#turn-data summary, #run-picker summary {
   cursor: pointer; list-style: none;
   display: flex; align-items: baseline; gap: .6rem;
 }
-#turn-data summary::-webkit-details-marker { display: none; }
-#turn-data summary h2 { display: inline; }
-#turn-data summary::before {
+#turn-data summary::-webkit-details-marker, #run-picker summary::-webkit-details-marker { display: none; }
+#turn-data summary h2, #run-picker summary h2 { display: inline; }
+#turn-data summary::before, #run-picker summary::before {
   content: "▸"; color: var(--text-muted); font-size: .8rem;
 }
-#turn-data[open] summary::before { content: "▾"; }
+#turn-data[open] summary::before, #run-picker[open] summary::before { content: "▾"; }
+#run-picker-list { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .6rem; }
+#run-picker-list button { font-size: .85rem; }
 .table-scroll { overflow: auto; max-height: 26rem; }
 .table-scroll th {
   position: sticky; top: 0; background: var(--surface-1);
