@@ -616,6 +616,37 @@ function drawRunDelta(data) {
     </svg></div>`;
 }
 
+/* How many earlier turns in this same run already touched one of this turn's
+   targets. A large result that is also a repeat read is a different problem
+   (something reread what it - or an earlier turn - already had) than a large
+   result that is not. */
+function repeatReadCount(row, run) {
+  const targets = targetsOf(row);
+  if (!targets.length) return 0;
+  const index = run.rows.indexOf(row);
+  let count = 0;
+  for (let i = 0; i < index; i++) {
+    if (targetsOf(run.rows[i]).some((t) => targets.includes(t))) count += 1;
+  }
+  return count;
+}
+
+function median(values) {
+  if (!values.length) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+/* This turn's tool result measured against the run's OWN typical turn, not a
+   global constant - "large" only means something read next to the other
+   turns actually recorded here. */
+function resultOutlierRatio(row, run) {
+  const others = run.rows.map((r) => num(r.result_tokens)).filter((v) => v > 0);
+  const typical = median(others);
+  return typical > 0 ? num(row.result_tokens) / typical : 0;
+}
+
 /* One paragraph per turn that mattered: what the turn was doing, and why doing
    it there costs what it costs. */
 function turnStory(row, run) {
@@ -630,11 +661,18 @@ function turnStory(row, run) {
   const mix = counts && role.mixed
     ? ` (${Object.keys(ROLE_NAME).filter((k) => counts[k]).map((k) => `${ROLE_NAME[k]} ${counts[k]}회`).join(", ")})`
     : "";
+  const repeats = repeatReadCount(row, run);
+  const ratio = resultOutlierRatio(row, run);
+  const why = [
+    repeats > 0 ? `이 중 일부는 이 실행에서 이미 ${repeats}번 읽힌 적이 있는 대상입니다 (반복 읽기)` : "",
+    ratio >= 2 ? `이 턴의 결과 크기는 같은 실행의 다른 턴들 중앙값보다 ${ratio.toFixed(1)}배 큽니다` : "",
+  ].filter(Boolean).join(". ");
   return `<li><b>턴 ${row.turn} — ${doing} 턴</b>${mix}
     ${what ? `<br><span class="targets">${what}</span>` : ""}
     <br>${produced} <b>${fmt(result)} 토큰</b>만큼 컨텍스트에 들어왔고, 남은 ${remaining}턴이
     매번 그것을 다시 읽어 <b>${fmt(tax)} 토큰</b>으로 청구됐습니다.
-    이 실행 전체 context tax의 ${share.toFixed(1)}%입니다.</li>`;
+    이 실행 전체 context tax의 ${share.toFixed(1)}%입니다.
+    ${why ? `<br><span class="muted">${why}.</span>` : ""}</li>`;
 }
 
 function expensiveSection(run) {
