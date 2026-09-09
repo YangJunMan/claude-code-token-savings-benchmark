@@ -47,5 +47,9 @@ class WebContractTests(unittest.TestCase):
             used |= {f"--series-{i}" for i in range(1, 6)}
         self.assertEqual(used - defined, set())
 
-    def test_the_run_picker_is_grouped_so_it_survives_a_year_of_batches(self):
-        self.assertIn("optgroup", APP.read_text())
+    def test_the_run_picker_stays_five_conditions_deep_however_many_rounds_pile_up(self):
+        """Rounds add entries inside a condition's date list, not new top-level
+        choices - the condition-picker button count never grows."""
+        app = APP.read_text()
+        self.assertIn("condition-picker", app)
+        self.assertIn("run-picker-list", app)
