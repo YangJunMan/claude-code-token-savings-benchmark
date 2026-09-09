@@ -62,15 +62,10 @@ class ApiParallelTests(unittest.TestCase):
             require_api_key({"ANTHROPIC_API_KEY": ""})
         self.assertEqual(require_api_key({"ANTHROPIC_API_KEY": "not-printed"}), "not-printed")
 
-    def test_public_reproduction_plan_repeats_the_baseline_and_headroom(self):
-        """Repeats are the budget line that makes any percentage interpretable."""
+    def test_public_reproduction_plan_runs_each_declared_condition(self):
         conditions = [condition for _, condition in REPRODUCTION_PLAN]
         counts = {name: conditions.count(name) for name in set(conditions)}
-        self.assertEqual(counts["BASE"], 2)
-        self.assertEqual(counts["H-ON"], 2)
-        self.assertEqual(counts["C-FULL"], 1)
-        self.assertEqual(counts["C-BRIEF"], 1)
-        self.assertEqual(counts["R-ON"], 1)
+        self.assertEqual(counts, {"BASE": 1, "H-ON": 1, "C-FULL": 1, "C-BRIEF": 1, "R-ON": 1})
 
     def test_paid_run_requires_exact_confirmation_and_positive_budget(self):
         with self.assertRaises(RuntimeError):

@@ -58,19 +58,17 @@ git diff --exit-code docs/GENERATED_RESULTS.md
 
 - **모델**: Claude Sonnet 5, effort `medium`, 영어 prompt
 - **과제**: SQLite 기반 GPU 작업 admission service 구현. 코드가 대부분이고 문서 작업 포함
-- **실행 구성**: baseline 2회, 그다음 Headroom 2회, Caveman full · `be brief` · RTK 각 1회
+- **실행 구성**: baseline, Headroom, Caveman full, `be brief`, RTK 각 1회
 - **캐시**: 한 실행 안에서는 prompt caching을 허용합니다. 실행마다 고유한 system nonce와
   sentinel MCP tool 이름을 붙여 실행 사이의 캐시 재사용을 최대한 막습니다
 - **격리**: 모든 실행은 fixture를 새로 복사한 자리에서 시작합니다. held-out grader
   테스트는 agent 작업 디렉터리 바깥에 둡니다
 - **품질 기준**: 기능 테스트와 구현·문서 rubric
 
-반복 횟수는 `benchmark/config.json`의 조건별 `repeat` 값으로 선언합니다. baseline을
-반복하는 이유는 **실행 간 자연 변동을 먼저 재 봐야 절감률을 해석할 수 있기** 때문입니다.
-
-같은 회차 안의 숫자만으로는 작은 차이를 인과 효과로 읽을 수 없습니다. 조건이 똑같은
-baseline 두 번도 비용이 9.78%, 처리 토큰이 22.06% 벌어졌습니다. 그래서 이 실험은
-회차를 주기적으로 쌓아 가며 보는 구조로 만들었고, 회차는 `run_date`로 구분됩니다.
+반복 횟수는 `benchmark/config.json`의 조건별 `repeat` 값으로 선언하며, 기본값은 조건마다
+1회입니다. 자연 변동은 한 회차 안의 반복이 아니라 **회차를 쌓아 가며** 읽습니다. 조건이
+똑같은 baseline도 회차 사이에 비용이 9.78%, 처리 토큰이 22.06% 벌어진 적이 있습니다.
+회차는 `run_date`로 구분됩니다.
 
 ## 유료 재실험
 
@@ -110,8 +108,8 @@ API key 없이 돌아갑니다.
 make estimate
 ```
 
-공개 재현 계획은 baseline과 Headroom을 각 2회, 나머지 세 조건을 1회씩 총 7개 작업을
-**순차로** 돌립니다. 반복한 조건이 있어야 그 조건의 백분율을 해석할 수 있기 때문입니다.
+공개 재현 계획은 5개 조건(baseline, Headroom, Caveman full, `be brief`, RTK)을 각 1회씩,
+총 5개 작업을 **순차로** 돌립니다.
 
 과거 실험에 든 비용은 이렇습니다.
 
