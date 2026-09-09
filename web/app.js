@@ -909,14 +909,18 @@ function drawKpis(turns) {
   if (!turns.length) return;
   const run = state.summary.find((r) => `${r.run_date}/${r.run_id}` === state.runId) || {};
   const totalTax = turns.reduce((a, r) => a + num(r.context_tax_tokens), 0);
-  const compacted = turns.some((r) => num(r.compacted));
+  /* Published as-is from run-summary.csv's invalid_reason column, not
+     re-guessed here - a run can fail more than one way at once (a Claude
+     session quota hit and a mid-run compaction, say), and only the pipeline
+     that saw both the result and the transcript can say which. */
+  const validity = num(run.measurable) ? "예" : `아니오 (${run.invalid_reason || "사유 미상"})`;
   const cards = [
     ["조건", run.condition || "—"],
     ["턴 수", fmt(turns.length)],
     ["누적 context tax", `${fmt(totalTax)} 토큰`],
     ["비용 (API 환산)", run.cost_usd ? `$${Number(run.cost_usd).toFixed(3)}` : "—"],
     ["품질", run.quality_score ? `${run.quality_score} · critical ${run.critical_pass}` : "—"],
-    ["측정 유효", compacted ? "아니오 (compaction)" : num(run.measurable) ? "예" : "아니오"],
+    ["측정 유효", validity],
   ];
   cards.forEach(([label, value]) => {
     const box = document.createElement("div");

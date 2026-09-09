@@ -54,6 +54,9 @@ class CollectionValidityTests(unittest.TestCase):
                 diagnostics = read(root / 'summary.csv')
                 self.assertEqual(len(diagnostics), 2)
                 self.assertEqual(diagnostics[1]['measurable'], '0')
+                expected_reason = 'max_turns' if failure == 'max_turns' else 'compacted'
+                self.assertEqual(diagnostics[1]['invalid_reason'], expected_reason)
+                self.assertEqual(diagnostics[0]['invalid_reason'], '')
 
 
 class PaidCostTests(unittest.TestCase):

@@ -172,3 +172,19 @@ class RunTotalsTests(unittest.TestCase):
             key = (row["run_date"], row["run_id"])
             self.assertEqual(int(row["processed_tokens"]), totals[key][0], key)
             self.assertEqual(int(row["context_tax_tokens"]), totals[key][1], key)
+
+
+class InvalidRunsHaveAReasonTests(unittest.TestCase):
+    """A row excluded from comparison.csv must say why - CI catches a future
+    collect_batch regression that publishes an invalid run silently."""
+
+    def test_every_non_measurable_published_run_has_a_recorded_reason(self):
+        import csv
+        summary = Path("data/run-summary.csv")
+        if not summary.exists():
+            self.skipTest("published data is not present")
+        with summary.open() as stream:
+            for row in csv.DictReader(stream):
+                if row["measurable"] == "0":
+                    self.assertTrue(row.get("invalid_reason"),
+                                    f"{row['run_date']}/{row['run_id']} has no invalid_reason")

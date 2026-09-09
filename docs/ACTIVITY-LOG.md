@@ -65,6 +65,14 @@ Headroom과 RTK가 노리는 지점이 바로 여기입니다.
 `run-summary.csv`의 `measurable` 열은 실행이 정상 종료되고 이 측정 조건도 충족했는지를
 담습니다. 무효 실행은 진단용 로그에 남기되 `comparison.csv`의 비교 집계에서 제외합니다.
 
+`measurable`이 0이면 `invalid_reason` 열에 왜 무효인지가 남습니다(예: `max_turns`,
+`quota_interrupted`, `no_changed_files`, `empty_response`, `compacted`,
+`cache_evidence_missing` — 한 실행에 여러 이유가 겹치면 `+`로 이어 붙입니다). CI가 이
+열이 비어 있는 무효 실행을 막습니다. `historical_unrecorded`는 이 열이 생기기 전에
+발행된 `2026-09-06 · H-ON-01` 하나뿐이며, 원본 실행 아티팩트가 이미 사라져 사후에
+분류할 수 없었던 값입니다 — 왜 무효였는지의 서술은
+[전체 실험 보고서](FULL_REPORT.md#무효-실행과-총-지출)에 남아 있습니다.
+
 ## 브라우저에서 보기
 
 발행된 페이지는 <https://yangjunman.github.io/claude-code-token-savings-benchmark/>에 있습니다. 클론한 저장소에서 직접 띄우려면:
