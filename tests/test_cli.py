@@ -2,12 +2,14 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from benchmark.runner.cli import (
-    batch_run_root, default_run_root, is_acceptable_result, latest_batch_run_root,
-    next_condition, washout_eligible_at)
+    batch_run_root, default_run_root, finalize_existing_results, is_acceptable_result,
+    latest_batch_run_root, next_condition, washout_eligible_at)
 from benchmark.runner.conditions import condition
-from benchmark.runner.contracts import BenchmarkConfig, Condition, load_config
+from benchmark.runner.contracts import BenchmarkConfig, Condition, RunState, load_config
+from benchmark.runner.state import StateStore
 
 
 class CliResultTests(unittest.TestCase):
@@ -226,6 +228,53 @@ class DefaultRunRootTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             self.assertEqual(default_run_root(root, config), batch_run_root(root))
+
+
+class FinalizeExistingResultsTests(unittest.TestCase):
+    """A grader crash here used to take down run_all() before its main loop
+    even started, with nothing recorded for any condition."""
+
+    def test_a_grading_failure_is_recorded_instead_of_crashing_startup(self):
+        config = load_config(Path("benchmark/config.json"))
+        with tempfile.TemporaryDirectory() as directory:
+            run_root = Path(directory)
+            record_attempt(run_root, "BASE", 1)
+            with patch("benchmark.runner.cli.grade_attempt",
+                      side_effect=RuntimeError("grader boom")):
+                finalize_existing_results(config, run_root)  # must not raise
+            state = StateStore(run_root).load()
+            self.assertEqual(state["state"], RunState.FAILED.value)
+            self.assertIn("grader boom", state["error"])
+
+    def test_a_quota_failure_while_grading_is_marked_invalid_not_failed(self):
+        config = load_config(Path("benchmark/config.json"))
+        with tempfile.TemporaryDirectory() as directory:
+            run_root = Path(directory)
+            record_attempt(run_root, "BASE", 1)
+            with patch("benchmark.runner.cli.grade_attempt",
+                      side_effect=RuntimeError("You've hit your session limit")):
+                finalize_existing_results(config, run_root)
+            state = StateStore(run_root).load()
+            self.assertEqual(state["state"], RunState.INVALID_QUOTA_INTERRUPTED.value)
+
+    def test_a_later_condition_still_finalizes_after_an_earlier_grading_failure(self):
+        config = load_config(Path("benchmark/config.json"))
+        with tempfile.TemporaryDirectory() as directory:
+            run_root = Path(directory)
+            record_attempt(run_root, "BASE", 1)
+            record_attempt(run_root, "H-ON", 1)
+            calls = []
+
+            def grade(worktree, result, output_path):
+                calls.append(worktree)
+                if len(calls) == 1:
+                    raise RuntimeError("grader boom")
+                output_path.write_text("{}")
+
+            with patch("benchmark.runner.cli.grade_attempt", side_effect=grade):
+                finalize_existing_results(config, run_root)
+            self.assertEqual(len(calls), 2)
+            self.assertTrue((run_root / "H-ON/attempt-01/quality.json").exists())
 
 
 if __name__ == "__main__":
