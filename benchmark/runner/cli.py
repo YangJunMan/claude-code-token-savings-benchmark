@@ -98,6 +98,13 @@ def washout_eligible_at(config, run_root, condition):
 
 
 def finalize_existing_results(config, run_root):
+    """Regrade whatever finished without a quality.json, e.g. after a crash.
+
+    A grader failure here must not raise: this runs before the main loop, so
+    an uncaught exception would kill run_all() before it does anything, with
+    no state recorded for any condition - including ones that already
+    finished cleanly in a prior process.
+    """
     store = StateStore(run_root)
     for condition in config.conditions:
         for result_path, result in _acceptable_results(run_root, condition):
@@ -105,8 +112,14 @@ def finalize_existing_results(config, run_root):
             quality_path = attempt_dir / "quality.json"
             if quality_path.exists():
                 continue
-            grade_attempt(attempt_dir / "worktree", result, quality_path)
             attempt = int(attempt_dir.name.split("-")[-1])
+            try:
+                grade_attempt(attempt_dir / "worktree", result, quality_path)
+            except Exception as error:
+                failure = classify_failure(str(error))
+                state = RunState.INVALID_QUOTA_INTERRUPTED if failure.invalidate_attempt else RunState.FAILED
+                store.transition(condition, state, attempt, error=str(error))
+                continue
             store.transition(
                 condition,
                 RunState.COMPLETED,
