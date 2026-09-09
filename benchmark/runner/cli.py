@@ -8,41 +8,13 @@ from benchmark.reports.collect import collect_batch
 from benchmark.reports.generate import generate_report
 from benchmark.grader.grade import grade_attempt
 from .claude import run_attempt
-from .contracts import RunState, load_config
+from .contracts import RunState, is_acceptable_result, load_config
 from .preflight import run_preflight, write_environment
 from .scheduler import classify_failure, quota_retry_at
 from .state import StateStore
 
 
 ROOT = Path(__file__).resolve().parents[2]
-
-
-def is_acceptable_result(result):
-    """A run is measurable only if Claude finished the task on its own.
-
-    A ``max_turns`` truncation is an invalid attempt: the model never reaches the
-    documentation, test-reporting and final-response phase, so its token total
-    measures the turn cap rather than the condition.  A run that changed no file
-    is invalid too, even on a clean exit - a model that answers with a clarifying
-    question and stops has produced a token count for a task it never attempted.
-
-    The first-turn cache read is recorded, not required to be zero.  Every run
-    starts from the same fixed Claude Code system prompt and tool definitions, so
-    the provider may serve that prefix from cache for whichever run goes second.
-    That is shared boilerplate, not another condition's work, and it lands on
-    every condition identically.  Cross-run contamination is caught instead by
-    ``reports.generate.uniform_first_turn_cache_read``.
-    """
-    transcript = result.get("transcript_summary")
-    if not transcript or int(transcript.get("first_turn_cache_read_tokens", -1)) < 0:
-        return False
-    if result.get("terminal_reason", "completed") != "completed":
-        return False
-    if result.get("returncode") != 0 or result.get("is_error"):
-        return False
-    if not result.get("changed_files"):
-        return False
-    return bool((result.get("final_text") or "").strip())
 
 
 def _acceptable_results(run_root, condition):
@@ -140,7 +112,8 @@ def run_next(root=ROOT, run_root=None):
     store.transition(condition, RunState.PREFLIGHT, attempt)
     store.transition(condition, RunState.RUNNING, attempt)
     try:
-        result = run_attempt(root, condition, attempt_dir)
+        result = run_attempt(root, condition, attempt_dir,
+                             scheduling="serial", cache_isolation="washout")
     except Exception as error:
         failure = classify_failure(str(error))
         state = RunState.INVALID_QUOTA_INTERRUPTED if failure.invalidate_attempt else RunState.FAILED

@@ -16,9 +16,11 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(config.model, "claude-sonnet-5")
         self.assertEqual(config.effort, "medium")
 
-    def test_the_baseline_is_repeated_so_the_noise_floor_is_measurable(self):
+    def test_each_condition_runs_once_by_default(self):
         conditions = load_conditions(Path("benchmark/config.json"))
-        self.assertEqual(conditions["BASE"].repeat, 2)
+        for identifier, item in conditions.items():
+            with self.subTest(condition=identifier):
+                self.assertEqual(item.repeat, 1)
 
     def test_every_condition_is_unique(self):
         conditions = load_conditions(Path("benchmark/config.json"))

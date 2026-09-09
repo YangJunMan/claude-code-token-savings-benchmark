@@ -62,7 +62,8 @@ Headroom과 RTK가 노리는 지점이 바로 여기입니다.
 불가**로 표시합니다. 버려진 결과는 이후 턴이 다시 읽지 않으므로 context tax가 실제보다
 부풀려지는데, 무엇이 버려졌는지는 transcript에서 되살릴 수 없기 때문입니다.
 
-`run-summary.csv`의 `measurable` 열이 이 판정을 담습니다.
+`run-summary.csv`의 `measurable` 열은 실행이 정상 종료되고 이 측정 조건도 충족했는지를
+담습니다. 무효 실행은 진단용 로그에 남기되 `comparison.csv`의 비교 집계에서 제외합니다.
 
 ## 브라우저에서 보기
 

@@ -9,7 +9,7 @@ import uuid
 from benchmark.grader.grade import grade_attempt
 from benchmark.reports.generate import generate_report
 from .claude import run_attempt
-from .cli import is_acceptable_result
+from .contracts import is_acceptable_result
 from .conditions import condition as declared_condition, conditions as declared_conditions
 
 
@@ -53,7 +53,7 @@ def require_paid_run_confirmation(confirmed, max_budget_usd):
     return float(max_budget_usd)
 
 
-def build_reproduction_jobs(max_turns=50):
+def build_reproduction_jobs(max_turns=None):
     return [
         {
             "label": label,
@@ -83,6 +83,7 @@ def _run_one(root, run_root, job, index, events_path, events_lock):
         "condition": condition.value, "state": "running", "nonce": job["nonce"],
         "started_at": _now(),
     }, indent=2) + "\n")
+    result = None
     try:
         result = run_attempt(
             root,
@@ -96,6 +97,8 @@ def _run_one(root, run_root, job, index, events_path, events_lock):
             disable_prompt_caching=job["disable_prompt_caching"],
             isolation_tools=job["isolation_tools"],
             isolation_mcp=job["isolation_mcp"],
+            scheduling="serial",
+            cache_isolation="nonce",
         )
         quality = grade_attempt(attempt_dir / "worktree", result, attempt_dir / "quality.json")
         state = "completed" if is_acceptable_result(result) else "invalid"
@@ -109,10 +112,16 @@ def _run_one(root, run_root, job, index, events_path, events_lock):
             "finished_at": _now(),
         }
     except Exception as error:
+        if result is None:
+            try:
+                result = json.loads((attempt_dir / "result.json").read_text())
+            except (OSError, ValueError):
+                result = {}
         record = {
             "label": label,
             "condition": condition.value, "state": "error",
             "error": str(error), "finished_at": _now(),
+            "cost_usd": result.get("total_cost_usd"),
         }
     state_path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
     with events_lock:
@@ -122,7 +131,7 @@ def _run_one(root, run_root, job, index, events_path, events_lock):
 
 
 def run_reproduction(root, run_root, report_dir, max_turns, max_budget_usd, projected_job_usd=2.50):
-    """Run the six-job public protocol serially and stop between jobs at budget."""
+    """Run the public protocol serially and stop between jobs at budget."""
     if run_root.exists() and any(run_root.iterdir()):
         raise FileExistsError(f"Refusing to overwrite immutable run root: {run_root}")
     run_root.mkdir(parents=True, exist_ok=True)
@@ -136,6 +145,8 @@ def run_reproduction(root, run_root, report_dir, max_turns, max_budget_usd, proj
             break
         record = _run_one(root, run_root, job, index, events_path, events_lock)
         records.append(record)
+        if record.get("cost_usd") is None:
+            break
         spent = sum(float(item.get("cost_usd") or 0) for item in records)
         if spent >= max_budget_usd:
             break

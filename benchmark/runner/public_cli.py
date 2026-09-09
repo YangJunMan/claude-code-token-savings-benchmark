@@ -12,6 +12,7 @@ from .api_parallel import (
     run_reproduction,
 )
 from .conditions import conditions as declared_conditions
+from .contracts import load_config
 from .preflight import optimizer_tools
 
 
@@ -19,11 +20,13 @@ ROOT = Path(__file__).resolve().parents[2]
 HISTORICAL_MAX_USD_PER_RUN = 2.50
 
 
-def estimate(max_turns=50):
+def estimate(max_turns=None):
+    config = load_config(ROOT / "benchmark/config.json")
+    max_turns = config.max_turns if max_turns is None else max_turns
     jobs = build_reproduction_jobs(max_turns=max_turns)
     return {
-        "model": "claude-sonnet-5",
-        "effort": "medium",
+        "model": config.model,
+        "effort": config.effort,
         "jobs": [job["label"] for job in jobs],
         "job_count": len(jobs),
         "max_turns_per_job": max_turns,
@@ -77,17 +80,17 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="Safe public benchmark entry point")
     subparsers = parser.add_subparsers(dest="command", required=True)
     estimate_parser = subparsers.add_parser("estimate")
-    estimate_parser.add_argument("--max-turns", type=int, default=50)
+    estimate_parser.add_argument("--max-turns", type=int, default=None)
     subparsers.add_parser("preflight")
     benchmark_parser = subparsers.add_parser("benchmark")
-    benchmark_parser.add_argument("--max-turns", type=int, default=50)
+    benchmark_parser.add_argument("--max-turns", type=int, default=None)
     benchmark_parser.add_argument("--max-budget-usd", type=float, required=True)
     benchmark_parser.add_argument("--confirm-paid-run", action="store_true")
     benchmark_parser.add_argument("--run-root", type=Path, required=True)
     benchmark_parser.add_argument("--report-dir", type=Path, required=True)
     args = parser.parse_args(argv)
 
-    projection = estimate(getattr(args, "max_turns", 50))
+    projection = estimate(getattr(args, "max_turns", None))
     if args.command == "estimate":
         print(json.dumps(projection, indent=2))
         return 0

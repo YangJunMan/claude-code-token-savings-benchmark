@@ -9,6 +9,7 @@ import time
 import uuid
 
 from .conditions import build_condition
+from .contracts import load_config
 from .artifacts import archive_transcript, write_manifest
 
 
@@ -129,9 +130,12 @@ def isolation_mcp_config_path(attempt_dir):
     return Path(attempt_dir).resolve() / "isolation-mcp.json"
 
 
-def run_attempt(root: Path, condition, attempt_dir: Path, *, max_turns=50,
+def run_attempt(root: Path, condition, attempt_dir: Path, *, max_turns=None,
                 api_mode=False, nonce=None, port=8787, disable_prompt_caching=True,
-                isolation_tools=(), isolation_mcp=False, max_budget_usd=None):
+                isolation_tools=(), isolation_mcp=False, max_budget_usd=None,
+                scheduling="unknown", cache_isolation="unknown"):
+    config = load_config(root / "benchmark/config.json")
+    max_turns = config.max_turns if max_turns is None else max_turns
     spec = build_condition(condition, attempt_dir / "worktree")
     worktree = attempt_dir / "worktree"
     attempt_dir.mkdir(parents=True, exist_ok=True)
@@ -152,7 +156,7 @@ def run_attempt(root: Path, condition, attempt_dir: Path, *, max_turns=50,
             "hooks": [{"type": "command", "command": spec.hook["command"]}]
         }]}}, indent=2) + "\n")
     session_id = str(uuid.uuid4())
-    command = ["claude", "-p", "--model", "claude-sonnet-5", "--effort", "medium",
+    command = ["claude", "-p", "--model", config.model, "--effort", config.effort,
                "--max-turns", str(max_turns), "--output-format", "json", "--permission-mode", "bypassPermissions",
                "--session-id", session_id, "--setting-sources", "project"]
     if max_budget_usd is not None:
@@ -197,11 +201,16 @@ def run_attempt(root: Path, condition, attempt_dir: Path, *, max_turns=50,
     parsed.update({"condition": condition.value, "session_id": session_id, "returncode": result.returncode,
                    "api_mode": api_mode, "disable_prompt_caching": bool(api_mode and disable_prompt_caching),
                    "max_turns": max_turns, "nonce": nonce,
+                   "model": config.model, "effort": config.effort,
+                   "scheduling": scheduling, "cache_isolation": cache_isolation,
+                   "washout_seconds": config.washout_seconds,
                    "started_epoch": started, "last_request_epoch": time.time()})
     parsed["final_text"] = "" if parsed.get("is_error") else parsed.get("result", "")
     parsed["terminal_reason"] = {
         "success": "completed", "error_max_turns": "max_turns",
     }.get(parsed.get("subtype", ""), parsed.get("subtype") or "unknown")
+    # Persist the paid result before git, tests, or archival can fail.
+    (attempt_dir / "result.json").write_text(json.dumps(parsed, indent=2, sort_keys=True) + "\n")
     stage_intent_to_add(worktree)
     with (attempt_dir / "git.diff").open("w") as diff_stream:
         subprocess.run(["git", "diff", "--binary", "HEAD"], cwd=worktree, text=True, stdout=diff_stream)

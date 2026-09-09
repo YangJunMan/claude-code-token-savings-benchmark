@@ -7,7 +7,7 @@ from benchmark.runner.cli import (
     batch_run_root, is_acceptable_result, latest_batch_run_root, next_condition,
     washout_eligible_at)
 from benchmark.runner.conditions import condition
-from benchmark.runner.contracts import load_config
+from benchmark.runner.contracts import BenchmarkConfig, Condition, load_config
 
 
 class CliResultTests(unittest.TestCase):
@@ -138,26 +138,36 @@ def record_attempt(run_root, condition_id, attempt):
     (directory / "result.json").write_text(json.dumps(ACCEPTABLE))
 
 
+def repeated_base_config():
+    """A synthetic config with a repeat > 1, independent of the live repeat=1
+    protocol in benchmark/config.json, so this mechanism stays covered even
+    when the current round declares no repeats."""
+    base = Condition(value="BASE", label="Baseline", optimizer="none", mechanism="none", repeat=2)
+    headroom = Condition(value="H-ON", label="Headroom", optimizer="headroom", mechanism="none", repeat=1)
+    return BenchmarkConfig(model="m", effort="e", max_turns=1, washout_seconds=0,
+                           conditions=[base, headroom])
+
+
 class RepeatTests(unittest.TestCase):
     """The spread between two identical runs is the floor every saving has to
     clear.  A runner that stops after one sample cannot produce that floor."""
 
     def test_a_condition_repeats_until_its_declared_count_is_met(self):
-        config = load_config(Path("benchmark/config.json"))
+        config = repeated_base_config()
         with tempfile.TemporaryDirectory() as directory:
             run_root = Path(directory)
             record_attempt(run_root, "BASE", 1)
 
-            self.assertEqual(next_condition(config, run_root), condition("BASE"))
+            self.assertEqual(next_condition(config, run_root), config.conditions[0])
 
     def test_the_next_condition_follows_once_the_repeats_are_complete(self):
-        config = load_config(Path("benchmark/config.json"))
+        config = repeated_base_config()
         with tempfile.TemporaryDirectory() as directory:
             run_root = Path(directory)
             record_attempt(run_root, "BASE", 1)
             record_attempt(run_root, "BASE", 2)
 
-            self.assertEqual(next_condition(config, run_root), condition("H-ON"))
+            self.assertEqual(next_condition(config, run_root), config.conditions[1])
 
 
 class BatchTests(unittest.TestCase):

@@ -9,7 +9,7 @@
       "label": "Baseline",
       "optimizer": "none",
       "mechanism": "none",
-      "repeat": 2
+      "repeat": 1
     },
     {
       "id": "H-ON",
@@ -35,7 +35,7 @@
           "ENABLE_TOOL_SEARCH": "true"
         }
       },
-      "repeat": 2
+      "repeat": 1
     },
     {
       "id": "C-FULL",

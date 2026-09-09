@@ -5,6 +5,7 @@ from pathlib import Path
 from benchmark.reports.comparison import baseline_id, spread_pct
 from benchmark.runner.conditions import conditions as declared_conditions
 from benchmark.runner.usage import parse_usage
+from benchmark.runner.contracts import is_acceptable_result
 
 
 def treatments(conditions=None):
@@ -126,19 +127,7 @@ def invalid_reason(result):
 
 
 def _acceptable(result, attempt_dir=None):
-    """Mirror ``runner.cli.is_acceptable_result``: only self-terminated runs count."""
-    transcript = result.get("transcript_summary")
-    if transcript is not None:
-        first_read = transcript.get("first_turn_cache_read_tokens")
-        if first_read is None or int(first_read) < 0:
-            return False
-    if result.get("terminal_reason", "completed") != "completed":
-        return False
-    if result.get("returncode") != 0 or result.get("is_error"):
-        return False
-    if not result.get("changed_files"):
-        return False
-    return bool((result.get("final_text") or "").strip())
+    return is_acceptable_result(result)
 
 
 def uniform_first_turn_cache_read(rows):
@@ -187,6 +176,9 @@ def _row_for(result_path):
         "run_label": result_path.parts[-3],
         "attempt": result_path.parts[-2],
         "api_mode": bool(result.get("api_mode", False)),
+        "scheduling": result.get("scheduling", "unknown"),
+        "cache_isolation": result.get("cache_isolation", "unknown"),
+        "washout_seconds": result.get("washout_seconds"),
         "max_turns": int(result.get("max_turns", 0) or 0),
         "cache_policy": cache_policy,
         "valid": _acceptable(result, result_path.parent),
@@ -328,31 +320,35 @@ def generate_report(run_root: Path, report_dir: Path):
     else:
         lines.append("Fewer than two valid BASE runs, so no noise floor could be computed. "
                      "Every percentage below is one observation against one observation.")
-    api_mode = any(row["api_mode"] for row in rows)
     uniform = uniform_first_turn_cache_read(rows) if rows else True
     lines.extend(["", "## Cache isolation and scheduling", ""])
     if rows:
         isolation_rows = []
-        for index, row in enumerate(rows):
-            if api_mode:
-                gap = "parallel"
-                washout = "not required"
+        ordered = sorted(rows + invalid, key=lambda row: row["started_epoch"])
+        for index, row in enumerate(ordered):
+            if not row["valid"]:
+                continue
+            seconds = None
+            if index and row["started_epoch"] and ordered[index - 1]["last_request_epoch"]:
+                seconds = row["started_epoch"] - ordered[index - 1]["last_request_epoch"]
+            gap = f"{seconds:.1f}s" if seconds is not None else "N/A"
+            policy = row["cache_isolation"]
+            if policy == "nonce":
+                washout = "not required (nonce)"
+            elif policy == "washout" and row["washout_seconds"] is not None:
+                washout = "N/A"
+                if seconds is not None:
+                    washout = "PASS" if seconds >= row["washout_seconds"] else "FAIL"
             else:
-                if index == 0:
-                    gap = "N/A"
-                    washout = "N/A"
-                else:
-                    seconds = row["started_epoch"] - rows[index - 1]["last_request_epoch"]
-                    gap = f"{seconds:.1f}s"
-                    washout = "PASS" if seconds >= 4200 else "FAIL"
+                washout = "unknown"
             first_cache = row["first_turn_cache_read_tokens"]
             cache_gate = "SHARED PREFIX" if uniform else "ASYMMETRIC"
             isolation_rows.append([
-                row["condition"], gap, washout, first_cache, cache_gate,
+                row["condition"], row["scheduling"], policy, gap, washout, first_cache, cache_gate,
                 row["later_turn_cache_creation_tokens"], row["later_turn_cache_read_tokens"],
             ])
         lines.extend(_markdown_table(
-            ["Condition", "Gap from previous", "Washout", "First-turn cache read", "Cache gate",
+            ["Condition", "Scheduling", "Cache isolation", "Gap from previous", "Washout", "First-turn cache read", "Cache gate",
              "Later-turn cache write", "Later-turn cache read"],
             isolation_rows,
         ))

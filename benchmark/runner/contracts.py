@@ -84,3 +84,32 @@ def load_config(path: Path) -> BenchmarkConfig:
     raw = json.loads(Path(path).read_text())
     raw["conditions"] = list(build_conditions(raw["conditions"]).values())
     return BenchmarkConfig(**raw)
+
+
+def is_acceptable_result(result):
+    """A run is measurable only if Claude finished the task on its own.
+
+    A ``max_turns`` truncation is an invalid attempt: the model never reaches the
+    documentation, test-reporting and final-response phase, so its token total
+    measures the turn cap rather than the condition.  A run that changed no file
+    is invalid too, even on a clean exit - a model that answers with a clarifying
+    question and stops has produced a token count for a task it never attempted.
+
+    The first-turn cache read is recorded, not required to be zero.  Every run
+    starts from the same fixed Claude Code system prompt and tool definitions, so
+    the provider may serve that prefix from cache for whichever run goes second.
+    That is shared boilerplate, not another condition's work, and it lands on
+    every condition identically.  Cross-run contamination is caught instead by
+    ``reports.generate.uniform_first_turn_cache_read``.
+    """
+    transcript = result.get("transcript_summary") or {}
+    first_read = transcript.get("first_turn_cache_read_tokens")
+    if first_read is None or int(first_read) < 0:
+        return False
+    if result.get("terminal_reason", "completed") != "completed":
+        return False
+    if result.get("returncode") != 0 or result.get("is_error"):
+        return False
+    if not result.get("changed_files"):
+        return False
+    return bool((result.get("final_text") or "").strip())
