@@ -50,6 +50,22 @@ def latest_batch_run_root(root: Path):
     return max(batches, key=lambda path: path.stat().st_mtime)
 
 
+def default_run_root(root: Path, config) -> Path:
+    """Continue whichever batch is still unfinished instead of always starting
+    one dated today.
+
+    A batch left mid-round crosses local midnight easily - washout alone is
+    70 minutes - and ``batch_run_root(root)`` with no ``batch`` argument
+    resolves to today's date every time it's called. Resuming after midnight
+    used to abandon yesterday's in-progress batch for a same-day duplicate
+    that reran every condition from scratch.
+    """
+    latest = latest_batch_run_root(root)
+    if next_condition(config, latest) is not None:
+        return latest
+    return batch_run_root(root)
+
+
 def next_condition(config, run_root):
     """Return the first condition that still owes runs.
 
@@ -102,7 +118,7 @@ def finalize_existing_results(config, run_root):
 
 def run_next(root=ROOT, run_root=None):
     config = load_config(root / "benchmark/config.json")
-    run_root = batch_run_root(root) if run_root is None else run_root
+    run_root = default_run_root(root, config) if run_root is None else run_root
     store = StateStore(run_root)
     condition = next_condition(config, run_root)
     if condition is None:
@@ -133,7 +149,7 @@ def run_next(root=ROOT, run_root=None):
 
 def run_all(root=ROOT, run_root=None):
     config = load_config(root / "benchmark/config.json")
-    run_root = batch_run_root(root) if run_root is None else run_root
+    run_root = default_run_root(root, config) if run_root is None else run_root
     finalize_existing_results(config, run_root)
     while next_condition(config, run_root) is not None:
         condition = next_condition(config, run_root)
