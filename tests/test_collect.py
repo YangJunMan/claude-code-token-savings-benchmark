@@ -4,7 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from benchmark.reports.collect import collect_batch
+from benchmark.reports.activity_log import extract_turns
+from benchmark.reports.collect import collect_batch, invalid_reason
 
 
 USAGE = {"claude-sonnet-5": {"inputTokens": 10, "cacheCreationInputTokens": 0,
@@ -176,3 +177,64 @@ class ComparisonPublishingTests(unittest.TestCase):
             self.assertTrue(all(r["run_date"] == "2026-09-06" for r in rows))
             self.assertNotIn("BASE", [r["condition"] for r in rows])
             self.assertTrue(all(r["noise_processed_pct"] for r in rows))
+
+
+def _turns_from(tmp, lines):
+    path = Path(tmp) / "transcript.jsonl"
+    path.write_text("\n".join(lines))
+    return extract_turns(path)
+
+
+ACCEPTABLE_RESULT = {
+    "returncode": 0, "terminal_reason": "completed", "is_error": False,
+    "final_text": "Changed files: a.py", "changed_files": ["a.py"],
+    "transcript_summary": {"first_turn_cache_read_tokens": 0},
+}
+
+
+class InvalidReasonTests(unittest.TestCase):
+    """One published value has to say *why*, not just *that*, a run is
+    excluded - and say every applicable reason, since more than one can
+    apply to the same run."""
+
+    def test_a_measurable_run_has_no_reason(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            turns = _turns_from(tmp, [turn("m1", 0, 1000, 40), turn("m2", 1000, 460, 25),
+                                      turn("m3", 1460, 25, 10)])
+            self.assertEqual(invalid_reason(ACCEPTABLE_RESULT, turns), "")
+
+    def test_max_turns_truncation_is_named(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            turns = _turns_from(tmp, [turn("m1", 0, 1000, 40)])
+            result = dict(ACCEPTABLE_RESULT, terminal_reason="max_turns", is_error=True)
+            self.assertEqual(invalid_reason(result, turns), "max_turns")
+
+    def test_a_quota_interruption_is_named(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            turns = _turns_from(tmp, [turn("m1", 0, 1000, 40), turn("m2", 1000, 460, 25)])
+            result = dict(ACCEPTABLE_RESULT, returncode=1, is_error=True,
+                         result="You've hit your session limit · resets 3:40am (Asia/Seoul)")
+            self.assertEqual(invalid_reason(result, turns), "quota_interrupted")
+
+    def test_a_quota_interruption_that_also_compacted_reports_both(self):
+        """The actual 2026-09-08 C-BRIEF incident: a session-limit hit whose
+        final_text came back empty, on a transcript that also compacted."""
+        with tempfile.TemporaryDirectory() as tmp:
+            turns = _turns_from(tmp, [turn("m1", 0, 1000, 40), turn("m2", 0, 500, 10)])
+            result = dict(ACCEPTABLE_RESULT, returncode=1, is_error=True, final_text="",
+                         result="You've hit your session limit · resets 3:40am (Asia/Seoul)")
+            self.assertEqual(invalid_reason(result, turns),
+                            "quota_interrupted+empty_response+compacted")
+
+    def test_no_changed_files_is_named(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            turns = _turns_from(tmp, [turn("m1", 0, 1000, 40)])
+            result = dict(ACCEPTABLE_RESULT, changed_files=[])
+            self.assertEqual(invalid_reason(result, turns), "no_changed_files")
+
+    def test_missing_cache_evidence_is_named(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            turns = _turns_from(tmp, [turn("m1", 0, 1000, 40)])
+            result = dict(ACCEPTABLE_RESULT,
+                         transcript_summary={"first_turn_cache_read_tokens": None})
+            self.assertEqual(invalid_reason(result, turns), "cache_evidence_missing")

@@ -16,6 +16,7 @@ from benchmark.reports.activity_log import (
 )
 from benchmark.runner.usage import parse_usage
 from benchmark.runner.contracts import is_acceptable_result
+from benchmark.runner.scheduler import classify_failure
 
 
 def aux_model_tokens(result, main_model):
@@ -56,7 +57,7 @@ def washout_gaps(runs):
 
 SUMMARY_COLUMNS = (
     "run_date", "run_id", "condition", "cost_usd", "quality_score",
-    "critical_pass", "turns", "measurable",
+    "critical_pass", "turns", "measurable", "invalid_reason",
     # Stored, not left for the page to re-derive: a second copy of the formula
     # is a second place for it to drift from what was published.
     "reconcile_observed", "reconcile_opening", "reconcile_output",
@@ -102,6 +103,39 @@ def run_identity(attempt_dir, condition):
     if label != condition:
         return label
     return f"{condition}-{attempt_dir.name.split('-')[-1]}"
+
+
+def invalid_reason(result, turns):
+    """Say why a run is excluded from ``comparable``, not just that it is.
+
+    A run can fail more than one of these at once - the 2026-09-08 C-BRIEF
+    attempt both hit a Claude session quota limit *and* compacted mid-run -
+    so every applicable cause is reported, joined with ``+``, rather than
+    only the first one a bool check happens to trip on.
+    """
+    if is_acceptable_result(result) and is_measurable(turns):
+        return ""
+    reasons = []
+    transcript = result.get("transcript_summary") or {}
+    first_read = transcript.get("first_turn_cache_read_tokens")
+    if first_read is None or int(first_read) < 0:
+        reasons.append("cache_evidence_missing")
+    if result.get("terminal_reason", "completed") == "max_turns":
+        reasons.append("max_turns")
+    elif result.get("returncode") != 0 or result.get("is_error"):
+        failure = classify_failure(json.dumps(result))
+        reasons.append("quota_interrupted" if failure.invalidate_attempt else "execution_error")
+    if not result.get("changed_files"):
+        reasons.append("no_changed_files")
+    if not (result.get("final_text") or "").strip():
+        reasons.append("empty_response")
+    if turns and not reconcile(turns)["balanced"]:
+        reasons.append("reconcile_unbalanced")
+    if any(turn.compacted for turn in turns):
+        reasons.append("compacted")
+    if not turns:
+        reasons.append("no_turns")
+    return "+".join(reasons) or "unknown"
 
 
 def critical_pass(quality):
@@ -162,6 +196,7 @@ def collect_batch(run_root, activity_path, summary_path, comparison_path=None):
             critical_pass(quality),
             len(turns),
             int(measurable),
+            "" if measurable else invalid_reason(result, turns),
             shares["observed"], shares["opening"], shares["output"],
             shares["tool_result"], shares["discarded"],
             model,
