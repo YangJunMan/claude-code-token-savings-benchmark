@@ -53,7 +53,8 @@
     차이가 이 폭 안에 있으면 조건의 효과로 읽을 수 없습니다.</p>
     <div class="scroll-x"><table id="condition-table"></table></div>
     <p class="muted">평균 열은 모든 회차를 합친 값이고, vs BASE 열은 각 회차 안에서 그 회차의
-    BASE와 비교한 뒤 평균한 값입니다. 회차마다 BASE가 다르므로 두 열을 직접 나눠 보면 맞지 않습니다.</p>
+    BASE와 비교한 뒤 평균한 값입니다. 회차마다 BASE가 다르므로 두 열을 직접 나눠 보면 맞지 않습니다.
+    두 열 다 측정 유효(measurable)한 실행만 평균에 넣습니다 — 실행 건수도 마찬가지입니다.</p>
     <p class="muted">여기의 처리 토큰은 <strong>주 모델(Sonnet 5)의 턴 합계</strong>입니다.
     Claude Code가 부수적으로 쓰는 보조 모델(Haiku 4.5, 실행당 약 0.1%)은 턴으로 분해되지 않아
     빠져 있습니다. <code>docs/GENERATED_RESULTS.md</code>의 표는 두 모델을 합산하므로 소수점에서
