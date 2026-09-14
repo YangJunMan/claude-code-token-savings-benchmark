@@ -18,7 +18,7 @@ def build_reproduction_plan(conditions=None):
 
     The baseline is repeated because the spread between two identical runs is the
     floor every saving has to clear; without it no percentage can be interpreted.
-    H-ON is repeated because a single observation of it overstated the saving by
+    HEADROOM is repeated because a single observation of it overstated the saving by
     nine percentage points.  Both counts are declared, not coded, so a new
     optimizer chooses its own without touching this file.
     """

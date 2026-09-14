@@ -9,8 +9,8 @@ are kept here so every published run can be traced to the exact text it received
 
 | File | sha256 | Used by |
 |---|---|---|
-| `master.md` | `f7dcb57843acdb0c9572dbbc8db9b1fde5458ce936c1646cf93905c70d434c90` | H-ON, R-ON |
-| `master-2026-08-30-capped.md` | `9176443aee4fbde7d986f7f59a77ebf456eeb9c8a40d1d69aa8a57422369242d` | BASE, C-FULL, C-BRIEF |
+| `master.md` | `f7dcb57843acdb0c9572dbbc8db9b1fde5458ce936c1646cf93905c70d434c90` | HEADROOM, RTK |
+| `master-2026-08-30-capped.md` | `9176443aee4fbde7d986f7f59a77ebf456eeb9c8a40d1d69aa8a57422369242d` | BASE, CAVEMAN-FULL, BE_BRIEF |
 
 The only difference is one sentence in the "Size and shape" section:
 

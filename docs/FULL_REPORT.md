@@ -32,10 +32,10 @@ command는 7개 중 1개뿐이었다. Caveman은 설명 문장을 줄이기는 �
 | ID | 조건 |
 |---|---|
 | `BASE-01`, `BASE-02` | 기본 Claude Code |
-| `H-ON-01`, `H-ON-02` | 기본 `cache` 모드의 Headroom proxy |
-| `C-FULL` | `full` 모드 지시문을 적용한 Caveman plugin |
-| `C-BRIEF` | plugin 없이 짧은 간결성 지시문만 추가 |
-| `R-ON` | Bash에 걸어 둔 RTK `PreToolUse` hook |
+| `HEADROOM-01`, `HEADROOM-02` | 기본 `cache` 모드의 Headroom proxy |
+| `CAVEMAN-FULL` | `full` 모드 지시문을 적용한 Caveman plugin |
+| `BE_BRIEF` | plugin 없이 짧은 간결성 지시문만 추가 |
+| `RTK` | Bash에 걸어 둔 RTK `PreToolUse` hook |
 
 조건이 똑같은 baseline 두 실행은 둘 다 96점을 받았다. 그런데도 턴 수는 37%, 처리 토큰은
 22.06%, 비용은 9.78% 벌어졌다. 이 보고서가 단정을 피하는 가장 큰 이유가 이 변동 폭이다.
@@ -89,7 +89,7 @@ command는 7개 중 1개뿐이었다. Caveman은 설명 문장을 줄이기는 �
 
 - Headroom은 2회, 나머지 방법은 1회씩만 관측했다. 신뢰구간이나 통계적 유의성을 주장할 수
   없다.
-- H-ON-02는 공개 테스트를 통과했지만 held-out grader 품질 점수가 없다.
+- HEADROOM-02는 공개 테스트를 통과했지만 held-out grader 품질 점수가 없다.
 - prompt를 두 가지 변형으로 썼다. Headroom과 RTK에서는 앞선 실행에서 턴을 낭비하게 만들던
   1,000줄 강제 제한을 뺐으므로, 효과를 온전히 갈라 귀속시킬 수 없다.
 - 첫 턴의 cache 상태가 비대칭이었다. 먼저 돌린 세 조건은 cache에서 24,556토큰을 읽었고,
@@ -106,7 +106,7 @@ command는 7개 중 1개뿐이었다. Caveman은 설명 문장을 줄이기는 �
   - `max_turns` 도달, 빈 최종 응답, 파일 미변경 실행은 무효로 처리한다.
   - 추적되지 않은 새 파일도 `git add -A -N`으로 stage해 diff와 grader가 볼 수 있게 했다.
   - 겹치던 control 세 가지(`H-OFF`, `C-NON`, `R-OFF`)를 `BASE` 하나로 합쳤다.
-  - 변동 폭을 볼 수 있도록 `BASE`와 `H-ON`을 반복했다.
+  - 변동 폭을 볼 수 있도록 `BASE`와 `HEADROOM`을 반복했다.
   - prompt의 턴 예산을 실행 설정에서 주입해 `--max-turns`와 어긋나지 않게 했다.
   - hidden CLI test가 prompt에 실제로 적힌 interface를 호출하도록 고쳤다.
 

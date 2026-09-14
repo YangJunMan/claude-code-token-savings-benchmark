@@ -37,8 +37,8 @@ class CollectionValidityTests(unittest.TestCase):
                 root = Path(directory)
                 runs = root / 'batch'
                 make_attempt(runs, 'BASE-01', 'BASE')
-                make_attempt(runs, 'H-ON-01', 'H-ON')
-                attempt = runs / 'H-ON-01/attempt-01'
+                make_attempt(runs, 'HEADROOM-01', 'HEADROOM')
+                attempt = runs / 'HEADROOM-01/attempt-01'
                 if failure == 'max_turns':
                     path = attempt / 'result.json'
                     result = json.loads(path.read_text())

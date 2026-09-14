@@ -217,7 +217,7 @@ class InvalidReasonTests(unittest.TestCase):
             self.assertEqual(invalid_reason(result, turns), "quota_interrupted")
 
     def test_a_quota_interruption_that_also_compacted_reports_both(self):
-        """The actual 2026-09-08 C-BRIEF incident: a session-limit hit whose
+        """The actual 2026-09-08 BE_BRIEF incident: a session-limit hit whose
         final_text came back empty, on a transcript that also compacted."""
         with tempfile.TemporaryDirectory() as tmp:
             turns = _turns_from(tmp, [turn("m1", 0, 1000, 40), turn("m2", 0, 500, 10)])

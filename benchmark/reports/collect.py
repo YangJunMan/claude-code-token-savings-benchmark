@@ -108,7 +108,7 @@ def run_identity(attempt_dir, condition):
 def invalid_reason(result, turns):
     """Say why a run is excluded from ``comparable``, not just that it is.
 
-    A run can fail more than one of these at once - the 2026-09-08 C-BRIEF
+    A run can fail more than one of these at once - the 2026-09-08 BE_BRIEF
     attempt both hit a Claude session quota limit *and* compacted mid-run -
     so every applicable cause is reported, joined with ``+``, rather than
     only the first one a bool check happens to trip on.

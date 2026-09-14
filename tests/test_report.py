@@ -17,13 +17,13 @@ class ReportTests(unittest.TestCase):
              "quality_score": 90, "critical_pass": True, "critical_passed": 6},
             {"condition": "BASE", "total_processed_tokens": 1000, "cost_usd": 1.0,
              "quality_score": 90, "critical_pass": True, "critical_passed": 6},
-            {"condition": "H-ON", "total_processed_tokens": 800, "cost_usd": 0.8,
+            {"condition": "HEADROOM", "total_processed_tokens": 800, "cost_usd": 0.8,
              "quality_score": 88, "critical_pass": True, "critical_passed": 6},
-            {"condition": "C-FULL", "total_processed_tokens": 700, "cost_usd": 0.7,
+            {"condition": "CAVEMAN-FULL", "total_processed_tokens": 700, "cost_usd": 0.7,
              "quality_score": 80, "critical_pass": True, "critical_passed": 6},
-            {"condition": "C-BRIEF", "total_processed_tokens": 750, "cost_usd": 0.75,
+            {"condition": "BE_BRIEF", "total_processed_tokens": 750, "cost_usd": 0.75,
              "quality_score": 86, "critical_pass": True, "critical_passed": 6},
-            {"condition": "R-ON", "total_processed_tokens": 950, "cost_usd": 0.95,
+            {"condition": "RTK", "total_processed_tokens": 950, "cost_usd": 0.95,
              "quality_score": 90, "critical_pass": True, "critical_passed": 6},
         ]
         comparisons = {item["comparison"]: item for item in paired_comparisons(rows)}
@@ -40,7 +40,7 @@ class ReportTests(unittest.TestCase):
              "quality_score": 90, "critical_pass": True, "critical_passed": 6},
             {"condition": "BASE", "total_processed_tokens": 1050, "cost_usd": 1.05,
              "quality_score": 90, "critical_pass": True, "critical_passed": 6},
-            {"condition": "H-ON", "total_processed_tokens": 970, "cost_usd": 0.97,
+            {"condition": "HEADROOM", "total_processed_tokens": 970, "cost_usd": 0.97,
              "quality_score": 90, "critical_pass": True, "critical_passed": 6},
         ]
         comparison = paired_comparisons(rows)[0]
@@ -59,7 +59,7 @@ class ReportTests(unittest.TestCase):
         rows = [
             {"condition": "BASE", "total_processed_tokens": 1000, "cost_usd": 1.0,
              "quality_score": 90, "critical_pass": False, "critical_passed": 5},
-            {"condition": "H-ON", "total_processed_tokens": 800, "cost_usd": 0.8,
+            {"condition": "HEADROOM", "total_processed_tokens": 800, "cost_usd": 0.8,
              "quality_score": 90, "critical_pass": False, "critical_passed": 4},
         ]
         self.assertFalse(paired_comparisons(rows)[0]["quality_gate_pass"])
@@ -68,7 +68,7 @@ class ReportTests(unittest.TestCase):
         rows = [
             {"condition": "BASE", "total_processed_tokens": 1000, "cost_usd": 1.0,
              "quality_score": 90, "critical_pass": False, "critical_passed": 5},
-            {"condition": "H-ON", "total_processed_tokens": 800, "cost_usd": 0.8,
+            {"condition": "HEADROOM", "total_processed_tokens": 800, "cost_usd": 0.8,
              "quality_score": 92, "critical_pass": False, "critical_passed": 5},
         ]
         self.assertTrue(paired_comparisons(rows)[0]["quality_gate_pass"])

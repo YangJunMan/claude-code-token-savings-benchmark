@@ -9,9 +9,9 @@ class ConditionTests(unittest.TestCase):
 
     def test_each_adapter_names_only_its_optimizer(self):
         expected = {
-            "BASE": "none", "H-ON": "headroom",
-            "C-FULL": "caveman", "C-BRIEF": "brief",
-            "R-ON": "rtk",
+            "BASE": "none", "HEADROOM": "headroom",
+            "CAVEMAN-FULL": "caveman", "BE_BRIEF": "brief",
+            "RTK": "rtk",
         }
         for identifier, optimizer in expected.items():
             spec = build_condition(condition(identifier), Path("/tmp/run"))
@@ -29,8 +29,8 @@ class ConditionTests(unittest.TestCase):
         """The comparison is only readable while every arm differs from BASE in
         one way.  The mechanism field makes that mechanical: it selects a single
         slot, so two treatments cannot be applied by accident."""
-        treatments = {"H-ON": "proxy", "C-FULL": "plugin",
-                      "C-BRIEF": "prompt_overlay", "R-ON": "hook"}
+        treatments = {"HEADROOM": "proxy", "CAVEMAN-FULL": "plugin",
+                      "BE_BRIEF": "prompt_overlay", "RTK": "hook"}
         for identifier, expected in treatments.items():
             spec = build_condition(condition(identifier), Path("/tmp/run"))
             active = {
@@ -43,7 +43,7 @@ class ConditionTests(unittest.TestCase):
 
     def test_headroom_uses_its_own_default_mode(self):
         """`--mode token` corrupted the prompt; the tool is judged on its default."""
-        spec = build_condition(condition("H-ON"), Path("/tmp/run"))
+        spec = build_condition(condition("HEADROOM"), Path("/tmp/run"))
         self.assertIn("cache", spec.proxy["args"])
 
     def test_every_declared_condition_builds(self):

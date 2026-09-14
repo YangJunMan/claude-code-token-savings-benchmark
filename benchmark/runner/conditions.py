@@ -36,7 +36,7 @@ def condition(identifier):
 
 
 def brief_overlay():
-    return overlay_text(condition("C-BRIEF"))
+    return overlay_text(condition("BE_BRIEF"))
 
 
 def overlay_text(condition):

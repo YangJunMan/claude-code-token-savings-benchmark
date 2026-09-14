@@ -69,7 +69,7 @@ Headroom과 RTK가 노리는 지점이 바로 여기입니다.
 `quota_interrupted`, `no_changed_files`, `empty_response`, `compacted`,
 `cache_evidence_missing` — 한 실행에 여러 이유가 겹치면 `+`로 이어 붙입니다). CI가 이
 열이 비어 있는 무효 실행을 막습니다. `historical_unrecorded`는 이 열이 생기기 전에
-발행된 `2026-09-06 · H-ON-01` 하나뿐이며, 원본 실행 아티팩트가 이미 사라져 사후에
+발행된 `2026-09-06 · HEADROOM-01` 하나뿐이며, 원본 실행 아티팩트가 이미 사라져 사후에
 분류할 수 없었던 값입니다 — 왜 무효였는지의 서술은
 [전체 실험 보고서](FULL_REPORT.md#무효-실행과-총-지출)에 남아 있습니다.
 

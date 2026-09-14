@@ -236,7 +236,7 @@ const byBatch = (a, b) => batchTime(a).localeCompare(batchTime(b)) || a.localeCo
 
 /* The published arm order (benchmark/config.json). A condition not on this
    list - some future optimizer - just sorts after the ones that are. */
-const CONDITION_ORDER = ["BASE", "H-ON", "C-FULL", "C-BRIEF", "R-ON"];
+const CONDITION_ORDER = ["BASE", "HEADROOM", "CAVEMAN-FULL", "BE_BRIEF", "RTK"];
 function conditionRank(condition) {
   const index = CONDITION_ORDER.indexOf(condition);
   return index === -1 ? CONDITION_ORDER.length : index;

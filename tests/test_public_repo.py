@@ -34,7 +34,7 @@ class PublicRepoTests(unittest.TestCase):
         self.assertIn("__pycache__/", ignored.splitlines())
 
     def test_proxy_binary_prefers_the_declared_environment_override(self):
-        settings = condition("H-ON").settings
+        settings = condition("HEADROOM").settings
         with tempfile.TemporaryDirectory() as directory:
             executable = Path(directory) / settings["binary"]
             executable.write_text("#!/bin/sh\n")
@@ -43,7 +43,7 @@ class PublicRepoTests(unittest.TestCase):
                 self.assertEqual(resolve_proxy_binary(ROOT, settings), executable)
 
     def test_plugin_directory_prefers_the_declared_environment_override(self):
-        settings = condition("C-FULL").settings
+        settings = condition("CAVEMAN-FULL").settings
         with tempfile.TemporaryDirectory() as directory:
             plugin = Path(directory) / "plugin"
             plugin.mkdir()
@@ -67,7 +67,7 @@ class PublicRepoTests(unittest.TestCase):
         """`--mode token` corrupted the prompt, so the declaration must not drift
         back to it."""
         command = build_proxy_command(
-            Path("/tmp/headroom"), condition("H-ON").settings,
+            Path("/tmp/headroom"), condition("HEADROOM").settings,
             log_path=Path("/tmp/log.jsonl"), port=8787,
         )
         self.assertIn("cache", command)
@@ -75,7 +75,7 @@ class PublicRepoTests(unittest.TestCase):
 
     def test_proxy_argument_template_is_filled_in(self):
         command = build_proxy_command(
-            Path("/tmp/headroom"), condition("H-ON").settings,
+            Path("/tmp/headroom"), condition("HEADROOM").settings,
             log_path=Path("/tmp/log.jsonl"), port=9001,
         )
         self.assertIn("9001", command)
@@ -87,7 +87,7 @@ class PublicRepoTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             os.chdir(directory)
             try:
-                spec = build_condition(condition("C-BRIEF"), Path(directory) / "worktree")
+                spec = build_condition(condition("BE_BRIEF"), Path(directory) / "worktree")
             finally:
                 os.chdir(previous)
         self.assertIn("Be brief", spec.prompt_overlay)
