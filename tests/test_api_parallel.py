@@ -65,7 +65,7 @@ class ApiParallelTests(unittest.TestCase):
     def test_public_reproduction_plan_runs_each_declared_condition(self):
         conditions = [condition for _, condition in REPRODUCTION_PLAN]
         counts = {name: conditions.count(name) for name in set(conditions)}
-        self.assertEqual(counts, {"BASE": 1, "H-ON": 1, "C-FULL": 1, "C-BRIEF": 1, "R-ON": 1})
+        self.assertEqual(counts, {"BASE": 1, "HEADROOM": 1, "CAVEMAN-FULL": 1, "BE_BRIEF": 1, "RTK": 1})
 
     def test_paid_run_requires_exact_confirmation_and_positive_budget(self):
         with self.assertRaises(RuntimeError):

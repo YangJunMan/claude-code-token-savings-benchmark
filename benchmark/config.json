@@ -12,7 +12,7 @@
       "repeat": 1
     },
     {
-      "id": "H-ON",
+      "id": "HEADROOM",
       "label": "Headroom optimized",
       "optimizer": "headroom",
       "mechanism": "proxy",
@@ -38,7 +38,7 @@
       "repeat": 1
     },
     {
-      "id": "C-FULL",
+      "id": "CAVEMAN-FULL",
       "label": "Caveman full",
       "optimizer": "caveman",
       "mechanism": "plugin",
@@ -49,7 +49,7 @@
       }
     },
     {
-      "id": "C-BRIEF",
+      "id": "BE_BRIEF",
       "label": "Be brief",
       "optimizer": "brief",
       "mechanism": "overlay",
@@ -58,7 +58,7 @@
       }
     },
     {
-      "id": "R-ON",
+      "id": "RTK",
       "label": "RTK on",
       "optimizer": "rtk",
       "mechanism": "hook",

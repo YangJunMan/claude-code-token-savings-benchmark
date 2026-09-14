@@ -29,32 +29,32 @@ class BatchComparisonTests(unittest.TestCase):
     def test_each_treatment_is_compared_against_the_pooled_baseline(self):
         result = batch_comparison([
             run("BASE", 100, 1.0), run("BASE", 200, 3.0),
-            run("R-ON", 120, 1.0),
+            run("RTK", 120, 1.0),
         ])
         self.assertAlmostEqual(result["noise"]["processed"], 66.6666, places=3)
         self.assertAlmostEqual(result["noise"]["cost"], 100.0)
-        row = next(r for r in result["conditions"] if r["condition"] == "R-ON")
+        row = next(r for r in result["conditions"] if r["condition"] == "RTK")
         self.assertAlmostEqual(row["processed"], -20.0)   # 120 vs mean 150
         self.assertAlmostEqual(row["cost"], -50.0)        # 1.0 vs mean 2.0
         self.assertEqual(row["runs"], 1)
 
     def test_a_batch_without_a_baseline_yields_no_comparison(self):
-        result = batch_comparison([run("R-ON", 120, 1.0)])
+        result = batch_comparison([run("RTK", 120, 1.0)])
         self.assertEqual(result["conditions"], [])
         self.assertIsNone(result["noise"]["processed"])
 
     def test_a_single_baseline_run_still_compares_but_reports_no_noise(self):
-        result = batch_comparison([run("BASE", 100, 1.0), run("R-ON", 80, 0.8)])
+        result = batch_comparison([run("BASE", 100, 1.0), run("RTK", 80, 0.8)])
         self.assertIsNone(result["noise"]["processed"])
         row = result["conditions"][0]
         self.assertAlmostEqual(row["processed"], -20.0)
 
     def test_rows_carry_the_batch_and_the_noise_floor(self):
         rows = comparison_rows("2026-09-06", [
-            run("BASE", 100, 1.0), run("BASE", 200, 3.0), run("R-ON", 120, 1.0)])
+            run("BASE", 100, 1.0), run("BASE", 200, 3.0), run("RTK", 120, 1.0)])
         self.assertEqual(len(rows), 1)
         row = dict(zip(COMPARISON_COLUMNS, rows[0]))
         self.assertEqual(row["run_date"], "2026-09-06")
-        self.assertEqual(row["condition"], "R-ON")
+        self.assertEqual(row["condition"], "RTK")
         self.assertEqual(row["runs"], 1)
         self.assertAlmostEqual(float(row["noise_processed_pct"]), 66.6666, places=3)

@@ -10,7 +10,7 @@ class ContractTests(unittest.TestCase):
         and BASE stays first because washout eligibility is measured against the
         preceding condition.  Newly declared optimizers append after them."""
         config = load_config(Path("benchmark/config.json"))
-        published = ["BASE", "H-ON", "C-FULL", "C-BRIEF", "R-ON"]
+        published = ["BASE", "HEADROOM", "CAVEMAN-FULL", "BE_BRIEF", "RTK"]
         self.assertEqual([c.value for c in config.conditions][:len(published)], published)
         self.assertEqual(config.washout_seconds, 4200)
         self.assertEqual(config.model, "claude-sonnet-5")

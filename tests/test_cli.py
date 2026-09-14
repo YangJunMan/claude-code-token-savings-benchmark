@@ -99,7 +99,7 @@ class CliResultTests(unittest.TestCase):
             repeated = run_root / condition("BASE").value / "attempt-02"
             repeated.mkdir(parents=True)
             (repeated / "result.json").write_text((first / "result.json").read_text())
-            self.assertEqual(next_condition(config, run_root), condition("H-ON"))
+            self.assertEqual(next_condition(config, run_root), condition("HEADROOM"))
 
     def test_restart_preserves_washout_from_previous_acceptable_result(self):
         config = load_config(Path("benchmark/config.json"))
@@ -120,11 +120,11 @@ class CliResultTests(unittest.TestCase):
             repeated.mkdir(parents=True)
             (repeated / "result.json").write_text((first / "result.json").read_text())
             self.assertEqual(
-                washout_eligible_at(config, run_root, condition("H-ON")),
+                washout_eligible_at(config, run_root, condition("HEADROOM")),
                 5200,
             )
 
-            second = run_root / condition("H-ON").value / "attempt-01"
+            second = run_root / condition("HEADROOM").value / "attempt-01"
             second.mkdir(parents=True)
             (second / "result.json").write_text(json.dumps({
                 "returncode": 1,
@@ -133,7 +133,7 @@ class CliResultTests(unittest.TestCase):
                 "clear_succeeded": True,
                 "transcript_summary": {"first_turn_cache_read_tokens": 0},
             }))
-            self.assertEqual(next_condition(config, run_root), condition("H-ON"))
+            self.assertEqual(next_condition(config, run_root), condition("HEADROOM"))
 
 ACCEPTABLE = {
     "returncode": 0, "terminal_reason": "completed", "public_returncode": 0,
@@ -155,7 +155,7 @@ def repeated_base_config():
     protocol in benchmark/config.json, so this mechanism stays covered even
     when the current round declares no repeats."""
     base = Condition(value="BASE", label="Baseline", optimizer="none", mechanism="none", repeat=2)
-    headroom = Condition(value="H-ON", label="Headroom", optimizer="headroom", mechanism="none", repeat=1)
+    headroom = Condition(value="HEADROOM", label="Headroom", optimizer="headroom", mechanism="none", repeat=1)
     return BenchmarkConfig(model="m", effort="e", max_turns=1, washout_seconds=0,
                            conditions=[base, headroom])
 
@@ -272,7 +272,7 @@ class FinalizeExistingResultsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             run_root = Path(directory)
             record_attempt(run_root, "BASE", 1)
-            record_attempt(run_root, "H-ON", 1)
+            record_attempt(run_root, "HEADROOM", 1)
             calls = []
 
             def grade(worktree, result, output_path):
@@ -284,7 +284,7 @@ class FinalizeExistingResultsTests(unittest.TestCase):
             with patch("benchmark.runner.cli.grade_attempt", side_effect=grade):
                 finalize_existing_results(config, run_root)
             self.assertEqual(len(calls), 2)
-            self.assertTrue((run_root / "H-ON/attempt-01/quality.json").exists())
+            self.assertTrue((run_root / "HEADROOM/attempt-01/quality.json").exists())
 
 
 if __name__ == "__main__":
@@ -326,7 +326,7 @@ class WashoutRepeatTests(unittest.TestCase):
                 washout_eligible_at(config, Path(directory), condition("BASE")), 0)
 
     def test_washout_follows_the_most_recent_run_not_the_declaration_order(self):
-        """H-ON's wait is set by BASE's second attempt, not its first."""
+        """HEADROOM's wait is set by BASE's second attempt, not its first."""
         config = load_config(Path("benchmark/config.json"))
         with tempfile.TemporaryDirectory() as directory:
             run_root = Path(directory)
@@ -336,7 +336,7 @@ class WashoutRepeatTests(unittest.TestCase):
                 (path / "result.json").write_text(
                     json.dumps({**self.ACCEPTABLE, "last_request_epoch": epoch}))
             self.assertEqual(
-                washout_eligible_at(config, run_root, condition("H-ON")), 13200)
+                washout_eligible_at(config, run_root, condition("HEADROOM")), 13200)
 
 
 class LatestBatchTests(unittest.TestCase):

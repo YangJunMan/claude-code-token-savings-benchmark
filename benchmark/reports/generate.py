@@ -389,8 +389,8 @@ def generate_report(run_root: Path, report_dir: Path):
         "reaches the documentation and reporting phase, so it is excluded.",
         "- BASE is a plain run: no proxy, no plugin, no hook. `headroom proxy --no-optimize` is not "
         "used as a control because its request log shows it still applies tool-schema compaction "
-        "and tool-search deferral, so H-ON is 'proxy versus no proxy'.",
-        "- C-BRIEF loads no plugin; it isolates whether a plain brevity instruction is enough.",
+        "and tool-search deferral, so HEADROOM is 'proxy versus no proxy'.",
+        "- BE_BRIEF loads no plugin; it isolates whether a plain brevity instruction is enough.",
         "- total_processed_tokens sums input, cache writes and cache reads at equal weight even "
         "though a cache read costs about a tenth of an input token, so judge savings by cost.",
         "- Total cost is dominated by `turns x context per turn`, and turn count varies widely "
