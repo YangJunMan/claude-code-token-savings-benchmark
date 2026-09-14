@@ -442,8 +442,12 @@ function drawConditionTable(data) {
   ["조건", "실행", "평균 처리 토큰", "평균 비용", "평균 context tax", "vs BASE 처리", "vs BASE 비용", "noise 초과", "평균 품질"]
     .forEach((label) => { const th = document.createElement("th"); th.textContent = label; head.appendChild(th); });
 
+  /* Averaged over measurable runs only - the same set comparison.csv's "vs
+     BASE"/"noise" columns already use. An invalid run has no reliable
+     quality (never graded) or tax (compaction overstates it), so folding it
+     in silently drags the average toward whatever num() defaults it to. */
   const byCondition = new Map();
-  data.runs.forEach((r) => {
+  data.runs.filter((r) => r.measurable).forEach((r) => {
     if (!byCondition.has(r.condition)) byCondition.set(r.condition, []);
     byCondition.get(r.condition).push(r);
   });
