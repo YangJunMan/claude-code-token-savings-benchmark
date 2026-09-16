@@ -1,4 +1,9 @@
-# Claude Code 토큰 절약 벤치마크 — 전체 보고서
+# Claude Code 토큰 절약 벤치마크 — 전체 보고서 (2026-09-06 회차)
+
+> **지난 회차 기록입니다.** 이 회차는 지금은 없는 held-out grader(숨은 채점 기준)로
+> 0~100점을 매겼습니다. 지금 파이프라인(`token_bench`)은 공개 테스트 통과 여부만
+> 봅니다 — 최신 수치는 `README.md`의 "최신 결과"와 웹 대시보드를 보세요. 이 문서는
+> 그 판단의 근거가 된 상세 분석으로 남겨 둡니다.
 
 ## 핵심 결과
 
@@ -26,8 +31,8 @@ command는 7개 중 1개뿐이었다. Caveman은 설명 문장을 줄이기는 �
 
 ## 어떤 조건을 비교했나
 
-수치의 원본은 [`data/published-measurements.csv`](../data/published-measurements.csv)다.
-[`GENERATED_RESULTS.md`](GENERATED_RESULTS.md)는 `make report`가 이 CSV에서 만들어 낸다.
+이 회차의 원본 CSV는 이후 파이프라인 교체 과정에서 저장소에서 제거됐다. 아래 표와
+수치는 제거되기 전에 이 문서에 옮겨 적은 값이다.
 
 | ID | 조건 |
 |---|---|
@@ -111,9 +116,10 @@ command는 7개 중 1개뿐이었다. Caveman은 설명 문장을 줄이기는 �
   - hidden CLI test가 prompt에 실제로 적힌 interface를 호출하도록 고쳤다.
 
   공개 수치를 잰 뒤에도 구조를 손봤다. 결과 해석이 달라지지는 않지만, 다시 돌릴 때
-  동작이 달라지는 부분이다.
+  동작이 달라지는 부분이다. (이 구조 자체도 이후 `token_bench` CLI로 한 번 더
+  교체됐다 — 조건 선언은 지금 `benchmark/conditions.json`에 있다.)
 
-  - 조건을 Python enum과 분기문에서 `benchmark/config.json` 선언으로 옮겼다. 새 절약법
+  - 조건을 Python enum과 분기문에서 JSON 선언으로 옮겼다. 새 절약법
     추가가 선언 하나로 끝나고, 각 조건이 활성화 슬롯을 하나만 채우므로 "모든 처치는
     baseline에서 한 가지만 다르다"는 설계가 구조로 강제된다.
   - 반복 횟수를 조건 선언의 `repeat`로 옮겼다. 그전에는 순차 runner가 첫 성공에서 다음
