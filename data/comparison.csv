@@ -1,4 +1,5 @@
 run_date,prompt_id,condition,runs,baseline_runs,processed_delta_pct,cost_delta_pct,tax_delta_pct,quality_delta,noise_processed_pct,noise_cost_pct
 2026-09-16,small,BE_BRIEF,1,1,-4.7092,-4.2173,-9.2571,0.0,,
 2026-09-16,small,CAVEMAN-FULL,1,1,-3.5621,-7.3874,-8.8815,0.0,,
+2026-09-16,small,HEADROOM,1,1,-4.9384,-5.4491,2.7175,0.0,,
 2026-09-16,small,RTK,1,1,6.3579,11.6949,11.5629,0.0,,
