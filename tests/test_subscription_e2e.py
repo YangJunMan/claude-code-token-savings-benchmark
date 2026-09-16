@@ -33,6 +33,7 @@ def _run_cli(args: list[str]) -> subprocess.CompletedProcess:
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
 
 

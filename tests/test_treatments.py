@@ -226,6 +226,7 @@ def test_skip_unavailable_filters_and_explains(tmp_path):
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=60,
     )
     assert result.returncode == 0, result.stderr

@@ -68,6 +68,7 @@ def _run_cli(args: list[str], *, cwd: Path, env: dict) -> subprocess.CompletedPr
         env=env,
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=30,
     )
 

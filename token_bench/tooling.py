@@ -42,6 +42,7 @@ def fingerprint_tools(run: RunSpec, *, repo_root: Path = Path(".")) -> tuple[dic
                 [resolved, *probe_args],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
                 timeout=15,
                 check=False,
             )

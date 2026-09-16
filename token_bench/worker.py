@@ -49,6 +49,29 @@ PERMISSION_MODE = "bypassPermissions"
 TERMINATE_GRACE_SECONDS = 5
 
 
+def _terminate_process_tree(process: subprocess.Popen) -> None:
+    """process와 그 자식까지 끝낸다.
+
+    Windows에서 `.bat`/`.cmd`(npm 도구가 흔히 이런 shim으로 설치된다)를
+    실행하면 그 뒤에서 cmd.exe가 실제 프로그램을 자식으로 한 번 더 띄운다.
+    `Popen.terminate()`는 그 직계 자식(cmd.exe)만 끝내고 손자 프로세스는
+    남는다 — POSIX는 launcher가 `exec`로 자기 자신을 대체해 이 문제가 없다.
+    """
+
+    if sys.platform == "win32":
+        subprocess.run(
+            ["taskkill", "/F", "/T", "/PID", str(process.pid)],
+            capture_output=True,
+        )
+    else:
+        process.terminate()
+    try:
+        process.wait(timeout=TERMINATE_GRACE_SECONDS)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+
+
 class WorkerError(ValueError):
     """프로세스를 시작할 수 없을 때 발생한다."""
 
@@ -260,12 +283,7 @@ def proxy_process(injection: Injection, *, log_dir: Path, env: dict[str, str]):
             )
             yield f"http://{PROXY_HOST}:{port}"
         finally:
-            process.terminate()
-            try:
-                process.wait(timeout=TERMINATE_GRACE_SECONDS)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait()
+            _terminate_process_tree(process)
 
 
 def run_once(
@@ -302,6 +320,14 @@ def run_once(
     command = build_command(
         prompt, injections, isolation=isolation, claude_bin=claude_bin, repo_root=repo_root
     )
+    # Windows는 subprocess가 shell=True 없이 확장자 없는 이름(PATH의 claude.cmd
+    # 등)을 스스로 찾지 못한다(WinError 2) — bare 이름 그대로 CreateProcess에
+    # 넘기면 실제로 설치돼 있어도 실패한다. shutil.which로 미리 찾은 전체
+    # 경로로 바꿔 넘긴다. 못 찾으면 원래 이름 그대로 둬 기존 OSError 메시지가
+    # 그대로 뜨게 한다.
+    resolved_bin = shutil.which(command[0])
+    if resolved_bin is not None:
+        command = [resolved_bin, *command[1:]]
     log_dir.mkdir(parents=True, exist_ok=True)
     stdout_path = log_dir / "stdout.jsonl"
     stderr_path = log_dir / "stderr.log"
@@ -329,12 +355,7 @@ def run_once(
                 returncode = process.wait(timeout=timeout_seconds)
                 status = "succeeded" if returncode == 0 else "failed"
             except subprocess.TimeoutExpired:
-                process.terminate()
-                try:
-                    process.wait(timeout=TERMINATE_GRACE_SECONDS)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait()
+                _terminate_process_tree(process)
                 status = "timeout"
                 returncode = process.returncode
     finally:

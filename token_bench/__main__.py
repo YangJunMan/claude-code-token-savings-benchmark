@@ -781,6 +781,13 @@ def _run_add_condition(conditions_path: Path) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Windows는 파이프로 리다이렉트된 stdout/stderr에 로케일 기본 코드페이지
+    # (흔히 cp1252)를 쓴다 — 한국어 메시지가 깨지거나 인코딩 에러가 난다.
+    # reconfigure가 없는 스트림(테스트의 io.StringIO 등)에서는 조용히 넘어간다.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
+
     parser = _build_parser()
     args = parser.parse_args(argv)
 

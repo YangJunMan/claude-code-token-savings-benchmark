@@ -32,13 +32,18 @@ def is_installed() -> bool:
 
 
 def _run(args: list[str]) -> str:
-    if not is_installed():
+    resolved = shutil.which(CLAUDE_BIN)
+    if resolved is None:
         raise ClaudeCodeError(f"'{CLAUDE_BIN}' 실행 파일을 PATH에서 찾을 수 없다.")
     try:
         result = subprocess.run(
-            [CLAUDE_BIN, *args],
+            # Windows는 shell=True 없이 확장자 없는 이름(claude.cmd 등)을
+            # 스스로 찾지 못한다(WinError 2) — shutil.which가 찾은 전체
+            # 경로를 그대로 넘긴다.
+            [resolved, *args],
             capture_output=True,
             text=True,
+            encoding="utf-8",
             timeout=_SUBPROCESS_TIMEOUT_SECONDS,
         )
     except subprocess.TimeoutExpired as exc:

@@ -36,6 +36,7 @@ def test_readme_inspect_example_runs():
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=30,
     )
     assert result.returncode == 0, result.stderr
