@@ -1,4 +1,4 @@
-name: offline-ci
+name: ci
 
 on:
   push:
@@ -9,20 +9,38 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        python-version: ["3.9", "3.13"]
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.11"
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
-      - run: node --check web/app.js
-      - run: make smoke
-      - run: make report
-      - run: git diff --exit-code docs/GENERATED_RESULTS.md
-      - run: git grep -nE 'sk-ant-api03-|ANTHROPIC_API_KEY=.+|/Users/yang/' -- . ':!.github/workflows/ci.yml' && exit 1 || exit 0
+          node-version: "22"
+      - name: Install test dependencies
+        run: python -m pip install --upgrade pip pytest
+      - name: Check web scripts parse
+        run: |
+          node --check web/app.js
+          node --check web/settings.js
+      - name: Check quickstart.sh syntax
+        if: runner.os != 'Windows'
+        run: bash -n quickstart.sh
+      - name: Check quickstart.ps1 parses
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("quickstart.ps1", [ref]$null, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) { $errors | ForEach-Object { Write-Error $_ }; exit 1 }
+      - name: Run unit and doc tests
+        run: python -m pytest tests/ -v
+      # 공개 저장소이므로 API key와 로컬 절대경로가 섞여 들어가면 즉시 실패시킨다.
+      - name: Guard against leaked secrets and local paths
+        if: runner.os == 'Linux'
+        run: git grep -nE 'sk-ant-api03-|ANTHROPIC_API_KEY=.+|/Users/yang/' -- . ':!.github/workflows/ci.yml' && exit 1 || exit 0
