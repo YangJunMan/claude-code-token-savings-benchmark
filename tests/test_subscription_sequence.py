@@ -1,5 +1,4 @@
 import json
-import stat
 import subprocess
 import sys
 import threading
@@ -9,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from token_bench.worker import WorkerLockError, worker_lock
+from tests.fake_cli import write_fake_cli
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -26,26 +26,25 @@ def _copy_runnable_conditions(dst: Path) -> None:
 
 
 def _write_fake_claude(bin_dir: Path, *, model="claude-sonnet-5", exit_code=0) -> Path:
-    bin_dir.mkdir(parents=True, exist_ok=True)
-    script = bin_dir / "claude"
-    script.write_text(
-        "#!/bin/sh\n"
-        "case \"$1\" in\n"
-        "  --version) echo '2.1.236 (Claude Code)'; exit 0 ;;\n"
-        "  auth) echo '{\"loggedIn\": true, \"authMethod\": \"claude.ai\", "
-        "\"apiProvider\": \"firstParty\", \"subscriptionType\": \"pro\"}'; exit 0 ;;\n"
-        "  --help) echo '--safe-mode --settings <file-or-json> --permission-mode <mode>'; exit 0 ;;\n"
-        f"  *) printf '%s' \"${{LIVE_ONLY:-missing}}\" > live-env.txt; "
-        f"echo '{{\"type\":\"system\",\"model\":\"{model}\"}}'; "
-        f"echo '{{\"type\":\"result\",\"num_turns\":1,\"total_cost_usd\":0.01,"
-        '"usage":{"input_tokens":1,"output_tokens":1,'
-        '"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}\';'
-        f" exit {exit_code} ;;\n"
-        "esac\n",
-        encoding="utf-8",
-    )
-    script.chmod(script.stat().st_mode | stat.S_IEXEC)
-    return script
+    python_body = f'''
+import os
+import sys
+
+arg = sys.argv[1] if len(sys.argv) > 1 else ""
+if arg == "--version":
+    print("2.1.236 (Claude Code)")
+elif arg == "auth":
+    print('{{"loggedIn": true, "authMethod": "claude.ai", "apiProvider": "firstParty", "subscriptionType": "pro"}}')
+elif arg == "--help":
+    print("--safe-mode --settings <file-or-json> --permission-mode <mode>")
+else:
+    with open("live-env.txt", "w", encoding="utf-8") as f:
+        f.write(os.environ.get("LIVE_ONLY", "missing"))
+    print('{{"type":"system","model":"{model}"}}')
+    print('{{"type":"result","num_turns":1,"total_cost_usd":0.01,"usage":{{"input_tokens":1,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}}')
+    sys.exit({exit_code})
+'''
+    return write_fake_cli(bin_dir, "claude", python_body)
 
 
 def _write_probe_script(repo_root: Path, version: str) -> Path:
@@ -58,7 +57,7 @@ def _cli_env(fake_bin_dir: Path) -> dict:
     import os
 
     env = dict(os.environ)
-    env["PATH"] = f"{fake_bin_dir}:{env['PATH']}"
+    env["PATH"] = f"{fake_bin_dir}{os.pathsep}{env['PATH']}"
     return env
 
 

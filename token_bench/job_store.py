@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -150,8 +151,22 @@ def _connect(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path, timeout=30)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL;")
-    conn.executescript(_SCHEMA)
+    conn.execute("PRAGMA busy_timeout=30000;")
+
+    # 같은 새 db 파일에 여러 스레드/프로세스가 동시에 처음 연결하면, WAL 전환과
+    # 스키마 생성(DDL)이 서로의 잠금과 부딪혀 `database is locked`를 즉시(수십
+    # ms 안에) 낸다 — busy_timeout이 있어도 이 초기화 구간에서는 재시도되지
+    # 않는 SQLite 자체의 동작이다. 그래서 이 구간만 우리가 직접 재시도한다.
+    for attempt in range(10):
+        try:
+            conn.execute("PRAGMA journal_mode=WAL;")
+            conn.executescript(_SCHEMA)
+            break
+        except sqlite3.OperationalError as exc:
+            if "locked" not in str(exc) or attempt == 9:
+                raise
+            time.sleep(0.05 * (attempt + 1))
+
     _drop_legacy_max_turns(conn)
     _add_missing_isolation_column(conn)
     _add_missing_tool_fingerprints_column(conn)

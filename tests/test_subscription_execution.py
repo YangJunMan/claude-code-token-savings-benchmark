@@ -1,6 +1,5 @@
 import json
 import os
-import stat
 import textwrap
 import threading
 from pathlib import Path
@@ -12,6 +11,7 @@ from token_bench.conditions import Injection, RunSpec
 from token_bench.job_store import claim_next_queued, enqueue, finish_job, get_job
 from token_bench.worker import WorkerError, build_command, build_env, run_once
 from token_bench.workspace import RunWorkspace
+from tests.fake_cli import write_fake_cli
 
 SUBSCRIPTION_AUTH = {
     "logged_in": True,
@@ -21,11 +21,8 @@ SUBSCRIPTION_AUTH = {
 }
 
 
-def _write_fake_claude(tmp_path: Path, body: str) -> Path:
-    script = tmp_path / "fake-claude"
-    script.write_text(f"#!/bin/sh\n{body}\n", encoding="utf-8")
-    script.chmod(script.stat().st_mode | stat.S_IEXEC)
-    return script
+def _write_fake_claude(tmp_path: Path, python_body: str) -> Path:
+    return write_fake_cli(tmp_path, "fake-claude", python_body)
 
 
 def test_build_command_includes_isolation_and_permission_flags():
@@ -61,7 +58,7 @@ def test_build_env_applies_env_injections_without_mutating_base():
 
 
 def test_run_once_records_success(tmp_path):
-    fake_claude = _write_fake_claude(tmp_path, 'echo \'{"type":"result"}\'; exit 0')
+    fake_claude = _write_fake_claude(tmp_path, 'print(\'{"type":"result"}\')')
     workdir = tmp_path / "workdir"
     workdir.mkdir()
 
@@ -82,7 +79,7 @@ def test_run_once_records_success(tmp_path):
 
 
 def test_run_once_records_failure_exit_code(tmp_path):
-    fake_claude = _write_fake_claude(tmp_path, "exit 7")
+    fake_claude = _write_fake_claude(tmp_path, "import sys; sys.exit(7)")
     workdir = tmp_path / "workdir"
     workdir.mkdir()
 
@@ -102,7 +99,7 @@ def test_run_once_records_failure_exit_code(tmp_path):
 
 
 def test_run_once_kills_process_on_timeout(tmp_path):
-    fake_claude = _write_fake_claude(tmp_path, "sleep 30")
+    fake_claude = _write_fake_claude(tmp_path, "import time; time.sleep(30)")
     workdir = tmp_path / "workdir"
     workdir.mkdir()
 
@@ -240,7 +237,7 @@ def test_finish_job_rejects_non_running_job(tmp_path):
 
 def test_full_lifecycle_with_fake_cli_end_to_end(tmp_path):
     """claim -> run_once(가짜 CLI) -> finish_job까지 실제로 이어지는지 검증한다."""
-    fake_claude = _write_fake_claude(tmp_path, 'echo \'{"type":"result"}\'; exit 0')
+    fake_claude = _write_fake_claude(tmp_path, 'print(\'{"type":"result"}\')')
     db_path, ws = _enqueue_one_job(tmp_path)
 
     job = claim_next_queued(db_path=db_path)

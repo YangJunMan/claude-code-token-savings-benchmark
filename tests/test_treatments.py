@@ -7,7 +7,6 @@
 
 import json
 import os
-import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -27,6 +26,7 @@ from token_bench.worker import (
     proxy_process,
     resolve_plugin_dir,
 )
+from tests.fake_cli import write_fake_cli
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -85,7 +85,9 @@ def test_hook_settings_reach_the_command():
         isolation="project-settings",
         repo_root=REPO_ROOT,
     )
-    assert command[command.index("--settings") + 1].endswith("benchmark/settings/rtk.json")
+    assert command[command.index("--settings") + 1] == str(
+        (REPO_ROOT / "benchmark" / "settings" / "rtk.json").resolve()
+    )
 
 
 def test_plugin_dir_reaches_the_command_and_resolves_globs(tmp_path):
@@ -125,9 +127,7 @@ def test_env_injection_reaches_the_child_environment():
 def _fake_proxy(tmp_path: Path) -> Path:
     """`--port`로 받은 포트에서 /readyz에 200을 주는 최소 HTTP 서버."""
 
-    script = tmp_path / "fakeproxy"
-    script.write_text(
-        "#!/usr/bin/env python3\n"
+    python_body = (
         "import sys\n"
         "from http.server import BaseHTTPRequestHandler, HTTPServer\n"
         "port = int(sys.argv[sys.argv.index('--port') + 1])\n"
@@ -135,11 +135,9 @@ def _fake_proxy(tmp_path: Path) -> Path:
         "    def do_GET(self):\n"
         "        self.send_response(200); self.end_headers(); self.wfile.write(b'ok')\n"
         "    def log_message(self, *a): pass\n"
-        "HTTPServer(('127.0.0.1', port), H).serve_forever()\n",
-        encoding="utf-8",
+        "HTTPServer(('127.0.0.1', port), H).serve_forever()\n"
     )
-    script.chmod(script.stat().st_mode | stat.S_IEXEC)
-    return script
+    return write_fake_cli(tmp_path, "fakeproxy", python_body)
 
 
 def test_proxy_is_started_and_its_base_url_is_owned_by_the_runner(tmp_path, monkeypatch):

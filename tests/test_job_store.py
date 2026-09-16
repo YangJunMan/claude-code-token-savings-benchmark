@@ -93,7 +93,7 @@ def test_concurrent_enqueue_of_same_approval_creates_jobs_once(tmp_path):
     for t in threads:
         t.start()
     for t in threads:
-        t.join(timeout=10)
+        t.join(timeout=30)
 
     assert not errors, errors
     jobs = list_jobs(db_path=db_path)

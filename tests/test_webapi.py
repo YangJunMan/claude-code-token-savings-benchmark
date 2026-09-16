@@ -1,7 +1,6 @@
 import json
 import os
 import shutil
-import stat
 import threading
 import urllib.error
 import urllib.request
@@ -10,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from token_bench.webapi import _conditions_summary, serve
+from tests.fake_cli import write_fake_cli
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -27,20 +27,18 @@ def _copy_runnable_conditions(dst: Path) -> None:
 
 
 def _write_fake_claude(bin_dir: Path) -> None:
-    bin_dir.mkdir(parents=True, exist_ok=True)
-    script = bin_dir / "claude"
-    script.write_text(
-        "#!/bin/sh\n"
-        "case \"$1\" in\n"
-        "  --version) echo '2.1.236 (Claude Code)'; exit 0 ;;\n"
-        "  auth) echo '{\"loggedIn\": true, \"authMethod\": \"claude.ai\", "
-        "\"apiProvider\": \"firstParty\", \"subscriptionType\": \"pro\"}'; exit 0 ;;\n"
-        "  --help) echo '--safe-mode --settings <file-or-json> --permission-mode <mode>'; exit 0 ;;\n"
-        "  *) exit 0 ;;\n"
-        "esac\n",
-        encoding="utf-8",
-    )
-    script.chmod(script.stat().st_mode | stat.S_IEXEC)
+    python_body = '''
+import sys
+
+arg = sys.argv[1] if len(sys.argv) > 1 else ""
+if arg == "--version":
+    print("2.1.236 (Claude Code)")
+elif arg == "auth":
+    print('{"loggedIn": true, "authMethod": "claude.ai", "apiProvider": "firstParty", "subscriptionType": "pro"}')
+elif arg == "--help":
+    print("--safe-mode --settings <file-or-json> --permission-mode <mode>")
+'''
+    write_fake_cli(bin_dir, "claude", python_body)
 
 
 @pytest.fixture()
@@ -53,7 +51,7 @@ def sandbox(tmp_path, monkeypatch):
 
     fake_bin = tmp_path / "fakebin"
     _write_fake_claude(fake_bin)
-    monkeypatch.setenv("PATH", f"{fake_bin}:{os.environ['PATH']}")
+    monkeypatch.setenv("PATH", f"{fake_bin}{os.pathsep}{os.environ['PATH']}")
     monkeypatch.chdir(tmp_path)
     return tmp_path
 

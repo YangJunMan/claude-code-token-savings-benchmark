@@ -6,7 +6,10 @@
 """
 
 import stat
+import sys
 from pathlib import Path
+
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 QUICKSTART = REPO_ROOT / "quickstart.sh"
@@ -14,6 +17,7 @@ QUICKSTART_PS1 = REPO_ROOT / "quickstart.ps1"
 SKILL = REPO_ROOT / ".claude" / "skills" / "token-bench" / "SKILL.md"
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows는 POSIX 실행 비트가 없다 — quickstart.ps1이 그 자리를 대신한다.")
 def test_quickstart_exists_and_is_executable():
     assert QUICKSTART.is_file()
     mode = QUICKSTART.stat().st_mode
