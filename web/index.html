@@ -8,140 +8,341 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div class="wrap">
 
-<header>
-  <div class="head-row">
+<!-- 화면 이동은 이 상단 바 한 곳에서만 합니다. 어떤 탭에서도 같은 자리에
+     같은 메뉴가 있습니다. -->
+<header class="topbar">
+  <div class="brand">
+    <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="3" y="12" width="4" height="9" rx="1"></rect>
+      <rect x="10" y="7" width="4" height="14" rx="1"></rect>
+      <rect x="17" y="3" width="4" height="18" rx="1"></rect>
+    </svg>
     <div>
       <h1>토큰 절약 실험 관측소</h1>
       <p class="sub">Claude Code의 토큰 절약법이 <strong>어느 활동에서</strong> 토큰을 아끼는지 턴 단위로 측정합니다.</p>
     </div>
-    <button id="theme" type="button" aria-pressed="false">다크 모드</button>
   </div>
   <nav class="tabs" id="tabs">
     <button type="button" data-view="overview" aria-selected="true">개요</button>
     <button type="button" data-view="run" aria-selected="false">실행 상세</button>
+    <button type="button" data-view="verify" aria-selected="false">결과 검증</button>
+    <button type="button" data-view="settings" aria-selected="false">실험 설정</button>
   </nav>
+  <label class="scope-field" id="prompt-picker-field">프롬프트
+    <select id="prompt-picker"><option value="">전체</option></select>
+  </label>
+  <button id="theme" type="button" aria-pressed="false">다크 모드</button>
 </header>
 
-<!-- ===================== 개요 ===================== -->
+<div class="wrap">
+
+<!-- ===================== 개요 =====================
+     모든 탭이 같은 뼈대를 씁니다: 페이지 헤더(제목·설명·스코프) → 12컬럼
+     카드 그리드. 카드는 제목 → 한 줄 설명 → 본문 → 각주 순서입니다. -->
 <main id="view-overview">
+  <div class="page-head">
+    <div>
+      <h2 class="page-title">개요</h2>
+      <p class="muted">지금까지 쌓인 회차 전체를 합쳐, 어떤 절약법이 실제로 토큰을 줄였는지 봅니다.</p>
+    </div>
+    <div class="scope" id="scope-overview"></div>
+  </div>
 
-  <section class="card">
-    <h2>지금까지의 결과</h2>
-    <p class="verdict" id="verdict">—</p>
-    <p class="hero-note" id="verdict-note"></p>
-  </section>
+  <div class="grid12">
+    <section class="card col-8">
+      <h2>지금까지의 결과</h2>
+      <p class="muted">모든 회차를 합쳐 내린 현재까지의 판단입니다.</p>
+      <p class="verdict" id="verdict">—</p>
+      <p class="hero-note" id="verdict-note"></p>
+    </section>
 
-  <section class="card">
-    <h2>누적 현황</h2>
-    <div class="kpi-row" id="corpus-kpis"></div>
-  </section>
+    <section class="card col-4">
+      <h2>누적 현황</h2>
+      <p class="muted">이 페이지가 근거로 삼는 데이터의 규모입니다.</p>
+      <div class="kpi-row tight-kpis" id="corpus-kpis"></div>
+    </section>
 
-  <section class="card">
-    <h2>BASE 대비 조건별 평균</h2>
-    <p class="muted">각 회차 안에서 그 회차의 BASE 평균과 견준 뒤, 회차별 차이를 다시 평균했습니다.
-    왼쪽이 절감, 오른쪽이 증가입니다.</p>
-    <div class="legend" id="delta-legend"></div>
-    <div class="scroll-x"><svg id="delta" role="img" aria-label="조건별 BASE 대비 차이"></svg></div>
-    <p class="muted" id="delta-note"></p>
-  </section>
+    <section class="card col-8">
+      <h2>BASE 대비 조건별 평균</h2>
+      <p class="muted">각 회차 안에서 그 회차의 BASE 평균과 견준 뒤, 회차별 차이를 다시 평균했습니다. 왼쪽이 절감, 오른쪽이 증가입니다.</p>
+      <div class="legend" id="delta-legend"></div>
+      <div class="chart"><svg id="delta" role="img" aria-label="조건별 BASE 대비 차이"></svg></div>
+      <p class="note" id="delta-note"></p>
+    </section>
 
-  <section class="card">
-    <h2>조건별 요약</h2>
-    <p class="muted">noise floor는 같은 회차에서 조건이 똑같은 BASE 실행끼리 벌어진 폭입니다.
-    차이가 이 폭 안에 있으면 조건의 효과로 읽을 수 없습니다.</p>
-    <div class="scroll-x"><table id="condition-table"></table></div>
-    <p class="muted">평균 열은 모든 회차를 합친 값이고, vs BASE 열은 각 회차 안에서 그 회차의
-    BASE와 비교한 뒤 평균한 값입니다. 회차마다 BASE가 다르므로 두 열을 직접 나눠 보면 맞지 않습니다.
-    두 열 다 측정 유효(measurable)한 실행만 평균에 넣습니다 — 실행 건수도 마찬가지입니다.</p>
-    <p class="muted">여기의 처리 토큰은 <strong>주 모델(Sonnet 5)의 턴 합계</strong>입니다.
-    Claude Code가 부수적으로 쓰는 보조 모델(Haiku 4.5, 실행당 약 0.1%)은 턴으로 분해되지 않아
-    빠져 있습니다. <code>docs/GENERATED_RESULTS.md</code>의 표는 두 모델을 합산하므로 소수점에서
-    갈립니다.</p>
-  </section>
+    <section class="card col-4">
+      <h2>해석 가이드</h2>
+      <p class="muted">위 막대를 어떤 기준으로 읽어야 하는지입니다.</p>
+      <div id="guide"></div>
+    </section>
 
-  <section class="card">
-    <h2>회차별 추세</h2>
-    <p class="muted">회차가 쌓이면 조건별 선이 길어집니다. 코드 수정은 필요 없습니다.</p>
-    <div class="legend" id="trend-legend"></div>
-    <div class="scroll-x"><svg id="trend" role="img" aria-label="회차별 조건 비교 추세"></svg></div>
-    <p class="muted" id="trend-note"></p>
-  </section>
-
-  <section class="card" id="explainer">
-    <h2>핵심 지표: context tax</h2>
-    <p class="sub">tool result가 컨텍스트를 키우면 그 비용은 한 번으로 끝나지 않습니다.
-    남은 턴이 모두 그 내용을 다시 읽기 때문에 <strong>턴 수만큼 거듭 청구</strong>됩니다.
-    합계만 보여 주는 결과표에는 이 숫자가 드러나지 않습니다.</p>
-    <p class="muted">턴 컨텍스트 = input + cache_creation + cache_read (provider 보고값) ·
-    result = 컨텍스트 증가분 − 직전 턴 output · tax = result × 이후 남은 턴 수</p>
-  </section>
-
+    <section class="card col-12">
+      <h2>조건별 요약</h2>
+      <p class="muted">조건마다 BASE와의 평균 차이, 그리고 그 차이를 효과로 읽어도 되는지입니다.</p>
+      <div class="scroll-x"><table id="condition-table"></table></div>
+      <p class="note">noise floor는 같은 회차에서 조건이 똑같은 BASE 실행끼리 벌어진 폭입니다. 차이가 이 폭 안에 있으면 조건의 효과로 읽을 수 없습니다.</p>
+    </section>
+  </div>
 </main>
 
 <!-- ===================== 실행 상세 ===================== -->
 <main id="view-run" hidden>
+  <div class="page-head">
+    <div>
+      <h2 class="page-title">실행 상세</h2>
+      <p class="muted">선택한 실행 하나를 턴 단위로 분석합니다.</p>
+    </div>
+    <div class="scope">
+      <div class="segmented" id="condition-picker" role="group" aria-label="실험 종류"></div>
+      <label class="scope-field">회차
+        <select id="run-select"></select>
+        <span class="muted" id="run-picker-count"></span>
+      </label>
+    </div>
+  </div>
 
-  <div class="controls" id="condition-picker" role="group" aria-label="실험 종류"></div>
+  <div class="grid12">
+    <section class="card col-12">
+      <h2>실행 요약</h2>
+      <p class="muted">이 실행이 무엇을 얼마에 했는지, 그리고 측정값을 신뢰할 수 있는지입니다.</p>
+      <div class="kpi-row" id="kpis"></div>
+      <p class="note" id="provenance"></p>
+      <p class="note" id="reconcile-check"></p>
+    </section>
 
-  <section class="card">
-    <details id="run-picker">
-      <summary><h2>날짜별 상세</h2><span class="muted" id="run-picker-count"></span></summary>
-      <p class="muted">같은 실험 종류 안에서 회차·반복을 골라 아래 상세를 그 실행으로 바꿉니다.</p>
-      <div id="run-picker-list"></div>
-    </details>
-  </section>
+    <section class="card col-6">
+      <h2>토큰이 가장 많이 든 턴</h2>
+      <p class="muted">한 번의 도구 결과가 이후 턴에 누적되어 전체 비용에서 차지한 몫입니다.</p>
+      <div id="top-turns"></div>
+    </section>
 
-  <section class="card">
-    <h2>실행 요약</h2>
-    <div class="kpi-row" id="kpis"></div>
-    <p class="muted" id="provenance"></p>
-    <p class="muted" id="reconcile-check"></p>
-  </section>
+    <section class="card col-6">
+      <h2>턴별 context tax</h2>
+      <p class="muted">막대 하나가 한 턴의 tool 호출이 이후 턴들에 걸쳐 청구시킨 총량입니다.</p>
+      <div class="chart"><svg id="timeline" role="img" aria-label="턴별 context tax 막대 차트"></svg></div>
+    </section>
 
-  <section class="card">
-    <h2>BASE 대비</h2>
-    <p class="muted">같은 회차의 BASE 평균과 견준 것입니다. 다시 청구된 컨텍스트의 차이를
-    네 항목으로 나눕니다. 네 항목의 합은 실측 차이와 정확히 같습니다.</p>
-    <div id="delta-run"></div>
-  </section>
+    <section class="card col-6">
+      <h2>툴별 누적 context tax</h2>
+      <p class="muted">같은 양을 어떤 도구가 불러들였는지로 나눠 본 것입니다.</p>
+      <div class="chart"><svg id="tools" role="img" aria-label="툴별 누적 context tax"></svg></div>
+    </section>
 
-  <section class="card">
-    <h2>실행 리포트</h2>
-    <p class="muted">모든 문장은 <code>data/activity-log.csv</code>의 실측값에서 나옵니다. 추정하지 않습니다.</p>
-    <div id="report"></div>
-  </section>
+    <section class="card col-6">
+      <h2>컨텍스트 성장</h2>
+      <p class="muted">턴이 진행되며 매 턴 모델에 다시 실리는 컨텍스트의 크기입니다.</p>
+      <div class="chart"><svg id="growth" role="img" aria-label="턴별 컨텍스트 크기 곡선"></svg></div>
+    </section>
 
-  <section class="card">
-    <h2>턴별 context tax</h2>
-    <p class="muted">막대 하나가 한 턴의 tool 호출이 이후 턴들에 걸쳐 청구시킨 총량입니다.</p>
-    <div class="scroll-x"><svg id="timeline" role="img" aria-label="턴별 context tax 막대 차트"></svg></div>
-  </section>
+    <section class="card col-12">
+      <h2>BASE 대비</h2>
+      <p class="muted">같은 회차의 BASE 평균과 견준 것입니다. 다시 청구된 컨텍스트의 차이를 네 항목으로 나눕니다.</p>
+      <div id="delta-run"></div>
+      <div id="report"></div>
+      <p class="note">네 항목의 합은 실측 차이와 정확히 같습니다.</p>
+    </section>
 
-  <section class="card">
-    <h2>컨텍스트 성장</h2>
-    <p class="muted">턴이 진행되며 매 턴 모델에 다시 실리는 컨텍스트의 크기입니다.</p>
-    <div class="scroll-x"><svg id="growth" role="img" aria-label="턴별 컨텍스트 크기 곡선"></svg></div>
-  </section>
+    <section class="card col-12">
+      <details id="turn-data">
+        <summary><h2>턴 데이터</h2><span class="muted" id="table-count"></span></summary>
+        <p class="muted">차트의 모든 수치는 이 표에서, 이 표는 <code>data/activity-log.csv</code>에서 옵니다.</p>
+        <div class="table-scroll"><table id="table"></table></div>
+      </details>
+    </section>
+  </div>
+</main>
 
-  <section class="card">
-    <h2>툴별 누적 context tax</h2>
-    <div class="scroll-x"><svg id="tools" role="img" aria-label="툴별 누적 context tax"></svg></div>
-  </section>
+<!-- ===================== 결과 검증 ===================== -->
+<main id="view-verify" hidden>
+  <div class="page-head">
+    <div>
+      <h2 class="page-title">결과 검증</h2>
+      <p class="muted">실험 결과가 반복 가능하고 신뢰할 수 있는지 검증합니다.</p>
+    </div>
+    <div class="scope" id="scope-verify"></div>
+  </div>
 
-  <section class="card">
-    <details id="turn-data">
-      <summary><h2>턴 데이터</h2><span class="muted" id="table-count"></span></summary>
-      <p class="muted">차트의 모든 수치는 이 표에서, 이 표는 <code>data/activity-log.csv</code>에서 옵니다.</p>
-      <div class="table-scroll"><table id="table"></table></div>
-    </details>
-  </section>
+  <div class="grid12">
+    <section class="card col-12">
+      <h2>조건별 요약</h2>
+      <p class="muted">측정 유효한 실행만 평균에 넣은 조건별 전체 수치입니다.</p>
+      <div class="scroll-x"><table id="condition-table-verify"></table></div>
+      <p class="note">평균 열은 모든 회차를 합친 값이고, vs BASE 열은 각 회차 안에서 비교한 뒤 평균한 값이라 두 열을 직접 나눠 보면 맞지 않습니다.
+      처리 토큰은 주 모델(Sonnet 5)의 턴 합계이며, 보조 모델(Haiku 4.5, 실행당 약 0.1%)은 턴으로 분해되지 않아 빠져 있습니다.</p>
+    </section>
 
+    <section class="card col-12">
+      <h2>회차별 추세</h2>
+      <p class="muted">회차가 쌓이면 조건별 선이 길어집니다. 코드 수정은 필요 없습니다.</p>
+      <div class="legend" id="trend-legend"></div>
+      <div class="chart"><svg id="trend" role="img" aria-label="회차별 조건 비교 추세"></svg></div>
+      <p class="note" id="trend-note"></p>
+    </section>
+
+
+    <section class="card col-12">
+      <h2>token-bench 실행 결과</h2>
+      <p class="muted">새 실행 파이프라인이 쌓는 <code>data/token-bench-results.csv</code>를 그대로 읽습니다.</p>
+      <p class="muted" id="bench-status" aria-live="polite"></p>
+      <div class="scroll-x"><table id="summary-table">
+        <thead><tr>
+          <th>조건</th><th>실행 수</th><th>평균 비용(USD)</th><th>평균 turn 수</th>
+          <th>평균 output 토큰</th><th>평균 cache read 토큰</th><th>공개 테스트 통과율</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table></div>
+      <h3>실행별 상세</h3>
+      <div class="table-scroll"><table id="detail-table">
+        <thead><tr>
+          <th>run_id</th><th>조건</th><th>repeat</th><th>상태</th><th>모델</th>
+          <th>비용(USD)</th><th>turn 수</th><th>공개 테스트</th><th>시작</th><th>종료</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table></div>
+      <p class="note">빈 칸은 원본 로그에 값이 없었다는 뜻입니다(0이 아닙니다). 위 표와는 스키마가 다른 별도 데이터입니다.</p>
+    </section>
+  </div>
+</main>
+
+<!-- ===================== 실험 설정 ===================== -->
+<main id="view-settings" hidden>
+  <div class="page-head">
+    <div>
+      <h2 class="page-title">실험 설정</h2>
+      <p class="muted">실행할 조건을 고르고, 실행 계획을 확인한 뒤 큐에 등록합니다.</p>
+    </div>
+    <div class="scope">
+      <span class="chip" id="settings-availability">로컬 API 확인 중…</span>
+    </div>
+  </div>
+
+  <div class="grid12">
+    <section class="card col-6">
+      <h2>1. 조건 고르기</h2>
+      <p class="muted">로컬 <code>token_bench serve</code>가 보고한 <code>benchmark/conditions.json</code>의 조건입니다.</p>
+      <div id="condition-list" class="muted">불러오는 중…</div>
+      <div class="controls"><button id="add-condition-btn" type="button">+ 새 스킬 추가하기</button></div>
+    </section>
+
+    <div class="modal-backdrop" id="add-condition-backdrop" hidden>
+      <div class="modal" id="add-condition-panel" role="dialog" aria-modal="true" aria-labelledby="add-condition-title">
+        <div class="modal-head">
+          <h2 id="add-condition-title">새 절약법 추가</h2>
+          <button type="button" id="ac-close-btn" class="modal-close" aria-label="닫기">×</button>
+        </div>
+        <p class="muted">이미 컴퓨터에 설치된 도구를 실험 조건으로 등록합니다. 설치 자체는 이 화면이 하지 않습니다.</p>
+
+        <div class="field-grid">
+          <label id="ac-id-field">조건 id (자동으로 채웁니다 — 필요하면 고치세요)
+            <input type="text" id="ac-id" placeholder="my-skill">
+          </label>
+          <label>반복 횟수
+            <input type="number" id="ac-repeat" value="1" min="1">
+          </label>
+          <label>어떻게 켜집니까?
+            <select id="ac-injection-type">
+              <option value="prompt_overlay">프롬프트에 지시문 덧붙이기</option>
+              <option value="config_ref">Claude Code 설정 파일 참조</option>
+              <option value="plugin_dir">플러그인 디렉터리</option>
+              <option value="env">환경변수</option>
+              <option value="proxy">CLI를 프록시 서버로 띄우기</option>
+            </select>
+          </label>
+          <label id="ac-inj-path-field">경로
+            <input type="text" id="ac-inj-path" placeholder="benchmark/prompts/my-skill.txt">
+          </label>
+          <label id="ac-inj-text-field">파일이 없으면 이 내용으로 새로 만들기 (prompt_overlay만)
+            <input type="text" id="ac-inj-text" placeholder="답변을 3문장 이내로 써라">
+          </label>
+          <label id="ac-inj-name-field" hidden>환경변수 이름
+            <input type="text" id="ac-inj-name">
+          </label>
+          <label id="ac-inj-value-field" hidden>환경변수 값
+            <input type="text" id="ac-inj-value">
+          </label>
+          <label id="ac-inj-binary-field" hidden>프록시로 띄울 실행 파일 이름
+            <input type="text" id="ac-inj-binary">
+          </label>
+          <label id="ac-inj-args-field" hidden>실행 인자, 쉼표로 구분 ({port}, {log_path} 사용 가능)
+            <input type="text" id="ac-inj-args" placeholder="proxy,--port,{port}">
+          </label>
+          <label id="ac-inj-ready-field" hidden>준비 확인용 HTTP 경로
+            <input type="text" id="ac-inj-ready" value="/readyz">
+          </label>
+          <label id="ac-inj-repo-field" hidden>공식 GitHub repository (이 방식엔 필요합니다)
+            <input type="text" id="ac-inj-repo" placeholder="https://github.com/example/newthing">
+          </label>
+        </div>
+
+        <div class="controls">
+          <button id="ac-submit-btn" class="primary" type="button">조건 추가하기</button>
+          <button id="ac-cancel-btn" type="button">취소</button>
+        </div>
+        <p class="note" id="ac-status" aria-live="polite"></p>
+      </div>
+    </div>
+
+    <section class="card col-6">
+      <h2>2. 세부 설정</h2>
+      <p class="muted">실행 하나의 시간 상한과 과제 프롬프트를 정합니다.</p>
+      <div class="field-grid">
+        <label>timeout_seconds
+          <input type="number" id="timeout-seconds" value="3600" min="1">
+        </label>
+        <label>프롬프트 프리셋
+          <select id="prompt-preset">
+            <option value="">(직접 경로 입력)</option>
+            <option value="small">small — 기본 크기</option>
+            <option value="large">large — 토큰 많이 소비</option>
+            <option value="very-large">very-large — 토큰 매우 많이 소비</option>
+          </select>
+        </label>
+        <label>직접 과제 프롬프트 경로
+          <input type="text" id="prompt-path" placeholder="benchmark/prompts/master.md">
+        </label>
+      </div>
+      <div class="controls"><button id="plan-btn" class="primary" type="button">실행 계획 만들기</button></div>
+      <p class="note"><code>serve</code>를 실행 중인 컴퓨터 기준 경로입니다. 프리셋을 골랐으면 비워 두세요.
+      turn 수 상한은 설치된 Claude Code가 강제하지 못해 받지 않습니다 — 실행은 <code>timeout_seconds</code>로만 끊깁니다.</p>
+    </section>
+
+    <section class="card col-12" id="plan-section" hidden>
+      <h2>3. 승인하고 등록</h2>
+      <p class="muted">이 내용 그대로 큐에 등록합니다. 실행은 <code>token_bench work</code>가 시작합니다.</p>
+      <div class="kpi-row tight-kpis" id="plan-kpis"></div>
+      <div class="scroll-x"><table id="plan-table">
+        <thead><tr><th>실행할 스킬</th><th>반복</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+      <div class="controls">
+        <button id="submit-btn" class="primary" type="button">승인하고 큐에 등록</button>
+      </div>
+      <p class="note" id="cost-disclaimer"></p>
+      <p class="note" id="plan-digest"></p>
+    </section>
+
+    <section class="card col-12">
+      <h2>등록된 작업 상태</h2>
+      <p class="muted">큐에 등록된 작업과 현재 상태입니다. 실행은 터미널에서 <code>token_bench work</code>를 돌려야 시작됩니다 — Windows·WSL·Linux·macOS 어디서나 같은 명령입니다.</p>
+      <div class="table-scroll"><table id="jobs-table">
+        <thead><tr><th>run_id</th><th>조건</th><th>상태</th><th>등록 시각</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+      <p class="note" id="status" aria-live="polite"></p>
+    </section>
+
+    <section class="card col-12" id="live-log-section" hidden>
+      <h2>지금 실행 중 — <code id="live-log-run-id"></code></h2>
+      <p class="muted">실행 중인 작업의 stdout을 몇 초마다 읽어 옵니다. 모델이 끝낸 뒤에는 갱신을 멈춥니다.</p>
+      <div id="live-log" class="live-log"></div>
+    </section>
+  </div>
 </main>
 
 </div>
 <div class="tooltip" id="tip" role="status" aria-live="polite"></div>
 <script src="app.js"></script>
+<script src="settings.js"></script>
 </body>
 </html>

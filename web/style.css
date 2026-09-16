@@ -70,6 +70,9 @@
 
 * { box-sizing: border-box; }
 
+/* 스크롤바가 생겼다 사라지며 본문 폭이 흔들리지 않게 자리를 미리 비워 둔다. */
+html { scrollbar-gutter: stable; }
+
 body {
   margin: 0;
   padding: 0 1.25rem 4rem;
@@ -78,17 +81,100 @@ body {
   font: 15px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
-.wrap { max-width: 1080px; margin: 0 auto; }
+.wrap { max-width: 1320px; margin: 0 auto; padding-top: 1.5rem; }
 
-header { padding: 2.5rem 0 1rem; }
+/* 상단 바: 어떤 탭에서도 같은 자리에 같은 메뉴가 있다. */
+.topbar {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; align-items: center; gap: 1.5rem;
+  padding: .9rem 1.25rem; margin: 0 -1.25rem;
+  background: var(--surface-1); border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.brand { display: flex; align-items: center; gap: .7rem; margin-right: auto; }
+.brand-mark { width: 22px; height: 22px; fill: var(--series-1); flex: none; }
+.brand h1 { font-size: 1.05rem; margin: 0; }
+.brand .sub { font-size: .8rem; }
+.topbar .tabs { margin: 0; border-bottom: none; }
+/* 테마 버튼이 탭 바로 옆에 붙으면 다섯 번째 탭처럼 보인다. 구분선을 둔다. */
+#theme { margin-left: .75rem; padding-left: 1.1rem; border-left: 1px solid var(--border);
+  border-radius: 0 6px 6px 0; }
+
 h1 { font-size: 1.6rem; margin: 0 0 .4rem; letter-spacing: -0.01em; }
+h3.tight { margin-top: 0; }
+
+/* 12컬럼 그리드 하나로 모든 탭을 배치한다. 카드 폭은 4/6/8/12만 쓴다 —
+   탭마다 다른 비대칭 분할을 만들지 않기 위해서다. */
+.grid12 { display: grid; grid-template-columns: repeat(12, 1fr); gap: 1rem; align-items: stretch; }
+.grid12 > * { min-width: 0; margin-bottom: 0; }
+.col-4 { grid-column: span 4; }
+.col-6 { grid-column: span 6; }
+.col-8 { grid-column: span 8; }
+.col-12 { grid-column: span 12; }
+@media (max-width: 1000px) {
+  .col-4, .col-6, .col-8 { grid-column: span 12; }
+}
+
+/* 페이지 헤더: 제목 + 한 줄 설명 + 스코프. 네 탭이 같은 순서를 지킨다.
+   스코프 자리에 들어가는 것만 탭마다 다르다(선택 컨트롤 / 범위 칩 / 상태). */
+/* 제목 열과 스코프 열의 자리를 그리드로 못박는다. flex + wrap이면 선택한
+   조건 이름이 길어질 때 스코프가 아랫줄로 떨어지며 페이지 전체가 밀린다. */
+.page-head {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end; gap: 1rem; margin: 1.5rem 0 1rem;
+  /* 탭마다 헤더 높이가 달라지면 탭을 바꿀 때 본문 시작점이 튄다. 스코프에
+     컨트롤이 들어가는 탭(실행 상세) 기준으로 자리를 미리 잡아 둔다. */
+  min-height: 6.7rem;
+}
+@media (max-width: 1000px) {
+  .page-head { grid-template-columns: 1fr; min-height: 0; }
+  /* 좁은 화면에서는 스코프를 줄바꿈 대신 가로로 밀어 본다 — 조건 이름이
+     두 줄로 접히며 컨트롤 높이가 들쭉날쭉해지는 것을 막는다. */
+  .scope { overflow-x: auto; padding-bottom: .25rem; }
+  /* 값 두 줄을 대비한 자리 예약은 넓은 화면에서만 의미가 있다. */
+  #kpis .value { min-height: 0; }
+}
+.page-title { font-size: 1.35rem; margin: 0 0 .25rem; letter-spacing: -0.01em; }
+.scope { display: flex; align-items: center; gap: .5rem; flex-wrap: nowrap; }
+.scope-field { display: flex; align-items: center; gap: .4rem; font-size: .85rem; color: var(--text-muted); white-space: nowrap; }
+/* 폭을 고정한다 — 회차 이름 길이에 따라 줄 전체가 움직이지 않도록. */
+#run-select { width: 17rem; text-overflow: ellipsis; }
+.segmented { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.segmented button {
+  border: none; border-radius: 0; background: var(--surface-1);
+  color: var(--text-secondary); font-size: .85rem; padding: .4rem .75rem;
+  border-right: 1px solid var(--border); white-space: nowrap;
+}
+.segmented button:last-child { border-right: none; }
+.segmented button[aria-pressed="true"] {
+  color: var(--series-1); background: color-mix(in srgb, var(--series-1) 14%, var(--surface-1));
+}
+.chip {
+  display: inline-flex; align-items: center; gap: .35rem;
+  padding: .3rem .6rem; border-radius: 999px; font-size: .8rem;
+  border: 1px solid var(--border); color: var(--text-secondary); background: var(--surface-1);
+}
+.chip b { color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.chip.warn { border-color: var(--critical); color: var(--critical); }
+.chip.ok { border-color: var(--good); color: var(--good); }
+
+/* 카드 문법: 제목 -> 한 줄 설명 -> 본문 -> 각주. 같은 행의 카드는 높이를
+   맞추고, 본문이 남는 공간을 차지해 각주가 바닥에 붙는다. */
+.card { display: flex; flex-direction: column; }
+/* display:flex가 hidden 속성을 덮어쓰지 않게 한다(승인 카드는 estimate 전까지 감춰져 있다). */
+[hidden] { display: none !important; }
+.card > .muted:first-of-type { margin: 0 0 .75rem; }
+.note { color: var(--text-muted); font-size: .8rem; margin: .75rem 0 0; }
+.card > .note:last-child { margin-top: auto; padding-top: .75rem; }
+.chart { padding-top: .25rem; }
+.chart svg { width: 100%; }
+
 h2 { font-size: 1.05rem; margin: 0 0 .25rem; letter-spacing: -0.005em; }
 h3 { font-size: .95rem; margin: 1.4rem 0 .35rem; letter-spacing: -0.005em; }
 #report > h3:first-child { margin-top: .4rem; }
 .sub { color: var(--text-secondary); margin: 0; }
 .muted { color: var(--text-muted); font-size: .875rem; }
 
-.head-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }
 
 .tabs { display: flex; gap: .25rem; margin-top: 1.4rem; border-bottom: 1px solid var(--border); }
 .tabs button {
@@ -114,6 +200,13 @@ select, button {
   background: var(--surface-1); color: var(--text-primary);
 }
 button { cursor: pointer; }
+/* 그 화면에서 실제로 눌러야 하는 버튼 하나는 채운 색으로 구분한다. */
+button.primary {
+  background: var(--series-1); border-color: var(--series-1); color: #fff;
+  font-weight: 600; padding: .5rem 1.1rem;
+}
+button.primary:hover { filter: brightness(1.08); }
+button.primary:disabled { opacity: .5; cursor: default; }
 button[aria-pressed="true"] { border-color: var(--series-1); color: var(--series-1); }
 
 .card {
@@ -125,12 +218,14 @@ button[aria-pressed="true"] { border-color: var(--series-1); color: var(--series
 }
 .card > .muted { margin-top: .1rem; }
 
-.hero { font-size: 3rem; line-height: 1.1; margin: .4rem 0 .1rem; letter-spacing: -0.02em; }
 .hero-note { color: var(--text-secondary); margin: 0; }
 
 .kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; }
 .kpi .label { color: var(--text-muted); font-size: .8rem; text-transform: none; }
 .kpi .value { font-size: 1.5rem; line-height: 1.2; }
+/* 실행 요약은 조건 이름·품질 표기 길이에 따라 값이 두 줄이 된다. 자리를 미리
+   잡아 두어 조건을 바꿀 때 카드 높이가 튀지 않게 한다. */
+#kpis .value { min-height: 3.6rem; }
 
 .legend { display: flex; flex-wrap: wrap; gap: .75rem 1.1rem; margin: .5rem 0 .25rem; }
 .legend span { display: inline-flex; align-items: center; gap: .35rem; font-size: .85rem; color: var(--text-secondary); }
@@ -152,7 +247,10 @@ td { font-variant-numeric: tabular-nums; }
    leads with a label. Scope the alignment so one does not distort the other. */
 #table th:first-child, #table td:first-child { width: 3.5rem; }
 #table th:nth-child(2), #table td:nth-child(2) { text-align: left; }
-#condition-table th:first-child, #condition-table td:first-child { text-align: left; }
+#condition-table-verify th:first-child, #condition-table-verify td:first-child { text-align: left; }
+/* 개요의 요약 표는 숫자 두 열만 오른쪽 정렬한다. */
+#condition-table th:nth-child(-n+3), #condition-table td:nth-child(-n+3),
+#condition-table th:last-child, #condition-table td:last-child { text-align: left; }
 td.good { color: var(--good); }
 td.bad { color: var(--critical); }
 
@@ -196,3 +294,87 @@ td.bad { color: var(--critical); }
 /* Value printed on top of its own bar; beats .mark-label on specificity. */
 .mark-label.on-mark { fill: var(--surface-1); }
 .swatch-line { flex: none; overflow: visible; }
+
+/* 해석 가이드: noise floor 수치와 그것을 어떻게 읽는지. */
+.panel { border: 1px solid var(--border); border-radius: 10px; padding: .9rem 1rem; }
+.panel-row { display: grid; grid-template-columns: auto 1fr; gap: 1rem; align-items: center; }
+.panel-figures { display: flex; flex-direction: column; gap: .35rem; }
+.panel-figures > div { display: flex; align-items: baseline; gap: .6rem; }
+.panel-figures .label { color: var(--text-muted); font-size: .8rem; min-width: 4.2rem; }
+.figure { font-size: 1.5rem; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+.figure.series-1 { color: var(--series-1); }
+.figure.series-5 { color: var(--series-5); }
+.callout {
+  margin-top: .75rem; padding: .8rem 1rem;
+  border-left: 3px solid var(--series-1); border-radius: 0 8px 8px 0;
+  background: color-mix(in srgb, var(--series-1) 10%, transparent);
+}
+.callout h3 { color: var(--series-1); }
+.callout p { margin: 0; color: var(--text-secondary); font-size: .9rem; }
+.tight-kpis { grid-template-columns: repeat(auto-fit, minmax(74px, 1fr)); gap: .5rem; }
+.tight-kpis .value { font-size: 1.25rem; }
+
+/* 토큰이 가장 많이 든 턴: 한 줄에 무엇을 했는지와 왜 비쌌는지. */
+.turn-row {
+  display: grid; grid-template-columns: 1fr auto auto; gap: .75rem 1rem;
+  align-items: center; padding: .7rem .8rem; margin-top: .5rem;
+  border: 1px solid var(--border); border-radius: 10px;
+}
+.turn-row.lead { border-color: var(--series-1); background: color-mix(in srgb, var(--series-1) 8%, transparent); }
+.turn-what { display: flex; flex-direction: column; gap: .1rem; font-size: .875rem; min-width: 0; }
+.turn-what .targets { font-size: .78em; }
+.turn-figure { font-size: 1.05rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.turn-metrics { display: flex; gap: 1rem; font-size: .8rem; color: var(--text-secondary); white-space: nowrap; }
+.turn-metrics .label { display: block; color: var(--text-muted); font-size: .72rem; }
+.turn-detail { margin-top: .8rem; }
+.turn-detail summary { cursor: pointer; color: var(--text-muted); font-size: .85rem; }
+@media (max-width: 600px) {
+  .turn-row { grid-template-columns: 1fr; }
+}
+
+.formula { margin: .6rem 0 .2rem; font-size: .95rem; }
+
+/* 실험 설정 탭의 입력 폼. */
+.field-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: .75rem 1rem; margin: .75rem 0 .25rem; }
+.field-grid label { display: flex; flex-direction: column; gap: .3rem; font-size: .85rem; color: var(--text-secondary); }
+.field-grid label.checkbox-field { flex-direction: row; align-items: center; gap: .5rem; }
+.field-grid label.checkbox-field input { width: auto; }
+input { font: inherit; font-size: .9rem; padding: .35rem .6rem; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-1); color: var(--text-primary); }
+input[type="checkbox"] { width: auto; }
+#condition-list label { display: block; color: var(--text-primary); font-size: .9rem; padding: .15rem 0; }
+.condition-row { padding: .3rem 0; }
+.condition-row.unavailable label { color: var(--text-muted); }
+.condition-row.unavailable .note { margin: .1rem 0 .3rem 1.4rem; }
+#plan-json { font-size: .8rem; background: var(--plane); border: 1px solid var(--border); border-radius: 8px; padding: .75rem; margin: .5rem 0; }
+
+.live-log { max-height: 22rem; overflow-y: auto; background: var(--plane); border: 1px solid var(--border); border-radius: 8px; padding: .6rem .8rem; font-size: .82rem; }
+.live-log .event { padding: .35rem 0; border-bottom: 1px dashed var(--border); }
+.live-log .event:last-child { border-bottom: none; }
+.live-log .tag { font-weight: 600; margin-right: .4rem; }
+.live-log .tag-text { color: var(--text-primary); }
+.live-log .tag-tool_use { color: var(--accent, #6b8afd); }
+.live-log .tag-tool_result { color: var(--text-secondary); }
+.live-log .tag-result { color: var(--text-primary); font-weight: 600; }
+.live-log .body { color: var(--text-secondary); white-space: pre-wrap; word-break: break-word; }
+
+.modal-backdrop {
+  position: fixed; inset: 0; background: rgba(0, 0, 0, .5);
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: 5vh 1rem; overflow-y: auto; z-index: 100;
+}
+.modal {
+  background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px;
+  padding: 1.25rem 1.5rem; width: 100%; max-width: 640px;
+}
+.modal-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.modal-head h2 { margin: 0; }
+.modal-close { background: none; border: none; font-size: 1.4rem; line-height: 1; cursor: pointer; color: var(--text-secondary); padding: .1rem .4rem; }
+.modal-close:hover { color: var(--text-primary); }
+#summary-table th:first-child, #summary-table td:first-child,
+#detail-table th:first-child, #detail-table td:first-child { text-align: left; }
+#jobs-table th, #jobs-table td { text-align: left; }
+/* 승인 카드의 계획 요약: 스킬 이름은 왼쪽, 횟수만 오른쪽. */
+#plan-table { max-width: 30rem; margin-top: .5rem; }
+#plan-table th:first-child, #plan-table td:first-child { text-align: left; }
+/* 실행별 상세는 열이 많아 줄바꿈되면 읽기 어렵다. 가로 스크롤에 맡긴다. */
+#detail-table th, #detail-table td { white-space: nowrap; }
