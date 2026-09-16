@@ -1,8 +1,15 @@
 name: ci
 
+# push는 main에만 돈다 — feature 브랜치는 pull_request 이벤트로 이미 커버되므로
+# 열린 PR에 push하면 같은 커밋에 CI가 두 번(push+pull_request) 도는 중복을 없앤다.
 on:
   push:
+    branches: [main]
   pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
