@@ -3,6 +3,9 @@ name: pages
 on:
   push:
     branches: [main]
+    paths:
+      - "web/**"
+      - "data/**"
   workflow_dispatch:
 
 permissions:
@@ -19,27 +22,23 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-
-      # The page is published with the same layout it has in the repository, so
-      # app.js keeps fetching ../data/*.csv and there is no second set of paths
-      # that can drift from the ones a local `python3 -m http.server` serves.
-      - name: Stage the site
+      # 저장소와 같은 배치로 올리기 때문에 app.js가 그대로 ../data/*.csv를
+      # fetch한다. 로컬에서 `python3 -m http.server`로 볼 때와 경로가 갈리지
+      # 않는다. 루트 index.html은 /web/으로 보내는 리다이렉트다 — 이게 없으면
+      # 사이트 루트 주소가 404가 된다.
+      - name: Assemble site
         run: |
-          mkdir -p site
-          cp -R web site/web
-          cp -R data site/data
-          # The icon link keeps the browser from probing /favicon.ico on the
-          # domain root, which 404s on the way through to /web/.
+          mkdir -p _site/web _site/data
+          cp -r web/. _site/web/
+          cp -r data/. _site/data/
           printf '%s\n' \
             '<!doctype html><meta charset="utf-8"><link rel="icon" href="data:,">' \
-            '<meta http-equiv="refresh" content="0; url=web/">' > site/index.html
-
-      - uses: actions/configure-pages@v5
+            '<meta http-equiv="refresh" content="0; url=web/">' > _site/index.html
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: site
-      - id: deploy
+          path: _site
+      - id: deployment
         uses: actions/deploy-pages@v4

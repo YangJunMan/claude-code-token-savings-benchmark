@@ -12,6 +12,7 @@ class ExistingBehaviorTests(unittest.TestCase):
         self.service = AdmissionService(self.store)
 
     def tearDown(self):
+        self.store.connection.close()
         self.temp.cleanup()
 
     def test_submit_and_get_job(self):

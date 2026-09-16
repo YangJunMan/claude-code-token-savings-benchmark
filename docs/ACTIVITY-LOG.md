@@ -5,10 +5,10 @@
 
 ## 왜 필요한가
 
-`data/published-measurements.csv`에는 실행 하나가 한 줄, 그것도 합계만 들어 있습니다.
-독자는 "Headroom이 36.7% 줄인다"는 결론까지는 볼 수 있지만, 그 절감이 어느 활동에서
-나왔는지는 확인할 길이 없습니다. 근거의 해상도를 한 단계 높이는 것이 이 측정의
-목적입니다.
+`data/run-summary.csv`에는 실행 하나가 한 줄, 그것도 합계만 들어 있습니다. 독자는
+"Headroom이 처리 토큰을 36.7% 줄인다"는 결론까지는 볼 수 있지만, 그 절감이 어느
+활동에서 나왔는지는 확인할 길이 없습니다. 근거의 해상도를 한 단계 높이는 것이 이
+측정의 목적입니다.
 
 ## context tax
 
@@ -84,21 +84,25 @@ python3 -m http.server 8765
 
 > `index.html`을 더블클릭해 `file://`로 열면 브라우저가 CSV 읽기를 막습니다.
 
-화면은 둘입니다. **개요**는 쌓인 회차를 모두 합쳐 BASE와 조건별 평균을 견주고,
-**실행 상세**는 실행 하나를 턴 단위로 풉니다.
+탭은 넷입니다. **개요**는 쌓인 회차를 모두 합쳐 BASE와 조건별 평균을 견주고,
+**실행 상세**는 실행 하나를 턴 단위로 풀며, **결과 검증**은 `token_bench work`가
+남긴 원본 요약을, **실험 설정**은 로컬 `token_bench serve`에 연결해 새 실험을
+등록합니다. 상단 **프롬프트** 선택으로 프리셋(`small`·`large`·`very-large`)과
+사용자 프롬프트(`custom:<hash>`)를 나눠 볼 수 있습니다 — 서로 다른 과제끼리는
+비교하지 않습니다.
 
 | 실행 상세의 구성 | 보여 주는 것 |
 |---|---|
 | 실행 요약 | 조건·턴 수·비용·품질, 그리고 위 회계 검증 결과 |
-| BASE 대비 | 같은 회차 BASE 평균과의 차이를 네 갈래로 나눈 막대 |
-| 실행 리포트 | 어디서 갈렸는지, 어느 턴이 무엇을 하느라 비쌌는지 |
+| BASE 대비 | 같은 회차·같은 프롬프트 BASE 평균과의 차이를 네 갈래로 나눈 막대 |
+| 왜 이렇게 갈렸나 | 위 차이를 구성요소별로, 그리고 transcript에서 찾은 실제 사건(테스트 실패·복구, 파일 재읽기)으로 설명 — 아래 [원인 진단](#원인-진단-run-diagnosticsjson) 참고 |
 | 턴별 context tax | 각 턴의 도구 호출이 이후 턴들에 걸쳐 청구시킨 총량 |
 | 컨텍스트 성장 | 턴이 진행되며 매 턴 다시 실리는 컨텍스트 크기 |
 | 툴별 누적 tax | 어떤 도구가 컨텍스트를 가장 많이 불렸는지 |
 | 턴 데이터 | 전체 턴 표 (기본은 접혀 있습니다) |
 
 의존성도 빌드 단계도 없습니다. 페이지는 아무것도 다시 계산하지 않고, 모든 수치를 아래
-CSV에서 읽어 옵니다.
+CSV·JSON에서 읽어 옵니다.
 
 ## 데이터 스키마
 
@@ -125,29 +129,33 @@ CSV에서 읽어 옵니다.
 | `cache_1h_tokens` | cache write 중 1시간 TTL 몫 (5분 TTL보다 비쌉니다) |
 | `stop_reason` | 그 턴이 끝난 이유 (`tool_use` / `end_turn`) |
 
-### `data/comparison.csv` — 회차·조건당 한 줄
+### `data/comparison.csv` — 회차·프롬프트·조건당 한 줄
 
 BASE 대비 차이와 그 회차의 noise floor입니다. **페이지는 이 값을 계산하지 않고 읽기만
-합니다.** 같은 공식이 Python과 JavaScript에 두 벌 있으면 발행된 숫자가 서로 어긋날 수
-있어서, 계산은 `benchmark/reports/comparison.py` 한 곳에만 둡니다. `reports/generate.py`의
-배치 리포트도 같은 함수를 씁니다.
+합니다.** 계산은 `token_bench/collect.py`의 `_rebuild_comparison` 한 곳에만 둡니다 —
+`token_bench work`가 실행을 성공적으로 마칠 때마다 이 파일 전체를 `run-summary.csv`에서
+다시 계산해 씁니다.
 
 | 열 | 뜻 |
 |---|---|
-| `run_date`, `condition` | 회차와 조건 |
-| `runs`, `baseline_runs` | 그 회차의 해당 조건 실행 수, BASE 실행 수 |
+| `run_date`, `prompt_id`, `condition` | 회차, 과제 프롬프트, 조건 |
+| `runs`, `baseline_runs` | 그 회차·프롬프트의 해당 조건 실행 수, BASE 실행 수 |
 | `processed_delta_pct`, `cost_delta_pct`, `tax_delta_pct` | BASE 평균 대비 차이(증가가 양수) |
-| `quality_delta` | 품질 점수 차이 |
+| `quality_delta` | 품질 점수 차이 (통과 100, 실패 0) |
 | `noise_processed_pct`, `noise_cost_pct` | 그 회차 BASE 실행끼리의 변동 폭. BASE가 1회뿐이면 빈칸 |
 
-비교는 **회차 안에서** 이뤄집니다. 회차마다 BASE가 다르므로 총계를 가로질러 평균하면
-BASE만 돈 회차가 다른 회차의 기준선까지 움직입니다. 페이지는 여기 실린 회차별 차이를
-평균할 뿐입니다.
+비교는 **같은 회차·같은 프롬프트 안에서만** 이뤄집니다. 회차마다, 프롬프트마다 BASE가
+다르므로 이 경계를 넘어 평균하면 서로 다른 과제의 기준선이 섞입니다. 페이지는 여기
+실린 회차별 차이를 평균할 뿐입니다.
 
 ### `data/run-summary.csv` — 실행당 한 줄
 
-`cost_usd`, `quality_score`, `critical_pass`, `turns`, `measurable`, 그리고 위에서 나눈
-결과(`reconcile_*`)가 들어갑니다.
+`prompt_id`(어떤 과제 프롬프트였는지 — 프리셋 이름 또는 `custom:<hash>`), `cost_usd`,
+`quality_score`, `critical_pass`, `turns`, `measurable`, 그리고 위에서 나눈
+결과(`reconcile_*`)가 들어갑니다. `quality_score`·`critical_pass`는 공개 테스트
+통과 여부만 담습니다(통과 100/`pass`, 실패 0/`fail`) — 지금 파이프라인은 숨은
+grader로 채점하지 않습니다. 예전 회차의 grader 점수는
+[FULL_REPORT.md](FULL_REPORT.md)에만 남아 있습니다.
 
 **파생값을 저장하는 기준은 "계산하는 곳을 한 군데로 모은다"입니다.** 값이 다른 열에서
 계산된다는 이유만으로 빼지 않습니다. 빼면 페이지가 그 공식을 다시 구현해야 하고, 그
@@ -168,6 +176,26 @@ BASE만 돈 회차가 다른 회차의 기준선까지 움직입니다. 페이�
 | `washout_gap_seconds` | 직전 실행이 끝나고 이 실행이 시작되기까지의 초. 배치 첫 실행은 빈칸 |
 | `aux_model_tokens` | 보조 모델(Haiku)에 청구된 토큰 |
 
+## 원인 진단 (`run-diagnostics.json`)
+
+"BASE보다 턴이 많다"는 숫자만으로는 왜 그런지 알 수 없습니다. 읽기가 늘었다면 —
+같은 skill의 어떤 기능 때문인지, 앞서 읽은 내용으로 답을 못 찾아 다시 읽었는지,
+테스트가 실패해서 고치느라 턴이 늘었는지는 transcript를 직접 봐야 압니다.
+
+`token_bench/diagnostics.py`가 `work`가 남긴 `stdout.jsonl`에서 두 가지 패턴을
+정규식으로 찾아 `data/run-diagnostics.json`에 `run_id`별로 남깁니다 — LLM을
+부르지 않으므로 `collect`를 돌릴 때마다 비용이 들지 않습니다.
+
+| 찾는 패턴 | 예시 |
+|---|---|
+| 테스트 실패 → 복구 | `turn 29: 테스트 실패 (test_repository_keeps_acceptance_contract_visible) — AttributeError: 'NoneType' object has no attribute 'id'` → `turn 31: 앞서 실패했던 테스트 수정 후 통과` |
+| 같은 파일 재읽기 | `turn 12: models.py 다시 읽음(처음 turn 4) — 앞서 읽은 내용으로 부족했거나 다시 확인이 필요했다는 뜻` |
+
+특이사항이 없는 실행은 이 파일에 항목이 생기지 않습니다 — 웹은 그 경우 "감지된
+사건 없음, 정상 편차로 보임"이라고 명시적으로 보여 줍니다(아무 말 없이 비워
+두지 않습니다). "실행 상세"의 **왜 이렇게 갈렸나** 카드에서 정량 분해 아래
+"실제로 무슨 일이 있었나"로 나타납니다.
+
 ## `targets` — 무엇을 다룬 턴인가
 
 턴이 얼마를 썼는지만으로는 왜 썼는지 알 수 없습니다. `targets`는 그 턴의 도구 호출이
@@ -179,10 +207,9 @@ BASE만 돈 회차가 다른 회차의 기준선까지 움직입니다. 페이�
 | `Bash` | 실행한 프로그램 이름만 (`pytest`, `find`) |
 | 그 밖 | 비워 둡니다 |
 
-**절대 경로는 담지 않습니다.** 실행은 매번 임시 worktree에서 일어나고 그 절대 경로에는
-실행한 사람의 홈 디렉터리가 들어 있습니다. `Bash`는 명령줄 전체가 worktree 밖 경로를
-담을 수 있어 프로그램 이름만 남깁니다. `tests/test_activity_targets.py`가 이 규칙을
-지킵니다.
+**절대 경로는 담지 않습니다.** 실행은 매번 임시 작업 디렉터리(`.token-bench/runs/...`)에서
+일어나고 그 절대 경로에는 실행한 사람의 홈 디렉터리가 들어 있습니다. `Bash`는 명령줄
+전체가 그 밖의 경로를 담을 수 있어 프로그램 이름만 남깁니다.
 
 이 열 덕분에 페이지가 "턴 2에서 61,509 토큰을 썼다"가 아니라 "턴 2는
 `gpu_platform/models.py` 외 4개를 읽어 들인 턴이고, 그 내용이 남은 29턴에 다시 실렸다"고
@@ -201,16 +228,18 @@ BASE만 돈 회차가 다른 회차의 기준선까지 움직입니다. 페이�
 | 출처 | 재는 것 |
 |---|---|
 | `data/activity-log.csv`의 턴 합계 | 주 모델의 턴만 |
-| `docs/GENERATED_RESULTS.md`의 처리 토큰 | provider가 보고한 모든 모델의 합 |
+| `data/run-summary.csv`의 `processed_tokens` | provider가 보고한 모든 모델의 합 |
 
 둘 다 맞지만 대상이 다릅니다. 조건 간 비교에서는 이 몫이 모든 조건에 비슷하게 실려
 소수점 첫째 자리에서만 차이가 납니다.
 
 ## 원본 아티팩트
 
-`benchmark/runs/<회차>/<실행>/attempt-NN/`에 transcript와 diff, 채점 결과가 남습니다.
-용량이 크고 개인정보와 로컬 경로가 섞여 있을 수 있어 저장소에는 커밋하지 않습니다.
-공개하는 것은 위 세 CSV뿐이고, 페이지의 모든 수치는 이 셋으로 되짚을 수 있습니다.
+`.token-bench/runs/<batch_id>/<condition>__r<repeat>/`에 작업 디렉터리와
+`logs/stdout.jsonl`(원본 transcript), `logs/stderr.log`가 남습니다. 용량이 크고
+개인정보와 로컬 경로가 섞여 있을 수 있어 저장소에는 커밋하지 않습니다(`.gitignore`).
+공개하는 것은 `data/`의 CSV·JSON뿐이고, 페이지의 모든 수치는 그 파일들로 되짚을 수
+있습니다.
 
 **원본은 백업하지 않습니다.** 회차마다 8MB 넘게 쌓이는 데다 그대로는 읽기도 어렵고,
 절대 경로와 대화 전문이 들어 있어 공개할 수도 없습니다. 대신 토큰과 결과에 관한 값은

@@ -1,29 +1,21 @@
-.worktrees/
-.venv/
-.env
-.env.*
-!.env.example
-*.pem
-*.key
-*.log
+.DS_Store
 __pycache__/
-*.py[cod]
-benchmark/local-backup/
-benchmark/runs/
-benchmark/runs-api/
-benchmark/runs-api-natural/
-benchmark/runs-api-natural-v2/
-benchmark/runs-api-natural-v3/
-benchmark/reports/*.csv
-benchmark/reports-api/*.csv
-benchmark/reports-api-natural/*.csv
-benchmark/reports-api-natural-v2/*.csv
-benchmark/reports-api-natural-v3/*.csv
-benchmark/runs-api-natural-v3-failed-mcp-path/
-benchmark/reports-api-natural/
-benchmark/reports-api-natural-v2/
-benchmark/reports-api-natural-v3-failed-mcp-path/
-benchmark/reports/checksums.sha256
+*.pyc
 
-# Per-batch report output; the published record is data/*.csv
-benchmark/reports/*/
+# 로컬 실행 상태 — 작업 디렉터리, 큐 DB, 원본 로그
+.token-bench/
+benchmark/runs/
+
+# 파이썬 가상환경
+.venv/
+
+# 개인 에이전트 작업 기록 — 공개 문서 아님
+.agent/
+.agents/
+graphify-out/
+
+# 내부 구현 계획·진행 기록 — 사용자용 문서 아님
+archive/
+
+# 개인 git worktree (자체 .git 포함, 절대 커밋 금지)
+.claude/worktrees/

@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "conditions": [
+    {
+      "id": "base",
+      "repeat": 1,
+      "requires_tools": [],
+      "tool_probes": {},
+      "injections": []
+    },
+    {
+      "id": "be-brief",
+      "repeat": 1,
+      "requires_tools": [],
+      "tool_probes": {},
+      "injections": [
+        {
+          "type": "prompt_overlay",
+          "path": "benchmark/prompts/be-brief.txt"
+        }
+      ]
+    },
+    {
+      "id": "headroom",
+      "repeat": 1,
+      "requires_tools": [
+        "headroom"
+      ],
+      "tool_probes": {
+        "headroom": ["--version"]
+      },
+      "repository_url": "https://github.com/chopratejas/headroom",
+      "injections": [
+        {
+          "type": "proxy",
+          "binary": "headroom",
+          "args": [
+            "proxy",
+            "--port",
+            "{port}",
+            "--mode",
+            "cache",
+            "--no-cache",
+            "--no-subscription-tracking",
+            "--log-file",
+            "{log_path}"
+          ],
+          "ready_path": "/readyz"
+        },
+        {
+          "type": "env",
+          "name": "ENABLE_TOOL_SEARCH",
+          "value": "true"
+        }
+      ]
+    },
+    {
+      "id": "caveman-full",
+      "repeat": 1,
+      "requires_tools": [],
+      "tool_probes": {},
+      "repository_url": "https://github.com/JuliusBrussee/caveman",
+      "injections": [
+        {
+          "type": "plugin_dir",
+          "path": "~/.claude/plugins/cache/caveman/caveman/*/plugins/caveman"
+        },
+        {
+          "type": "prompt_overlay",
+          "path": "benchmark/prompts/caveman-full.txt"
+        }
+      ]
+    },
+    {
+      "id": "rtk",
+      "repeat": 1,
+      "requires_tools": [
+        "rtk"
+      ],
+      "tool_probes": {
+        "rtk": ["--version"]
+      },
+      "repository_url": "https://github.com/rtk-ai/rtk",
+      "injections": [
+        {
+          "type": "config_ref",
+          "path": "benchmark/settings/rtk.json"
+        }
+      ]
+    }
+  ]
+}

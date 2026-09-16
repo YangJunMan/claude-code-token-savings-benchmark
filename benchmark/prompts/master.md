@@ -38,7 +38,6 @@ Documentation must stay smaller than the code and test changes.
 - Preserve the public API where practical, and explain any change you must make.
 - Do not remove acceptance requirements and do not replace real behavior with mocks or stubs.
 - Run the complete public test suite with `python3 -m unittest discover -s tests -v` and inspect the final diff before you finish.
-- You have at most {max_turns} assistant turns. Budget them so the implementation, the test run, and the final report all fit.
 
 ## Final response
 

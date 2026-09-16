@@ -21,8 +21,14 @@ function parseCsv(text) {
     else if (c !== "\r") field += c;
   }
   if (field || row.length) { row.push(field); rows.push(row); }
-  const header = rows.shift();
-  return rows.filter((r) => r.length === header.length)
+  return rows.filter((r) => r.length > 1 || r[0] !== "");
+}
+
+/* 첫 줄을 헤더로 삼아 행을 객체로 바꾼다. 열 수가 헤더와 다른 행은 버린다. */
+function toRecords(rows) {
+  if (rows.length === 0) return [];
+  const header = rows[0];
+  return rows.slice(1).filter((r) => r.length === header.length)
     .map((r) => Object.fromEntries(header.map((h, i) => [h, r[i]])));
 }
 
@@ -35,6 +41,28 @@ function el(name, attrs = {}, parent) {
   for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
   if (parent) parent.appendChild(node);
   return node;
+}
+
+/* 카드 폭에 맞춰 그린다. 숨겨진 탭은 폭이 0으로 잡히므로 그때만 기본값을
+   쓰고, 탭이 보이는 순간 다시 그린다(showView -> render). */
+function boxWidth(id, fallback) {
+  const host = document.getElementById(id).parentElement;
+  const available = host ? host.clientWidth : 0;
+  return available > 80 ? available : fallback;
+}
+
+/* 그릴 내용이 그대로면 SVG를 다시 만들지 않는다. 탭 전환이나 폭 변화가
+   없는 리사이즈에서 화면이 깜빡이거나 밀리는 것을 막는다. */
+function unchanged(id, signature) {
+  const node = document.getElementById(id);
+  if (node.dataset.sig === signature) return true;
+  node.dataset.sig = signature;
+  return false;
+}
+
+function chartSignature(width, extra = "") {
+  const theme = document.documentElement.getAttribute("data-theme") || "system";
+  return `${Math.round(width)}|${theme}|${extra}`;
 }
 
 function frame(id, width, height) {
@@ -69,7 +97,8 @@ function barLeft(x, y, w, h, r) {
 
 /* ---------- tooltip ---------- */
 
-const tip = document.getElementById("tip");
+/* Node 기반 테스트는 순수 함수만 require 하므로 DOM 없이도 읽혀야 한다. */
+const tip = typeof document === "undefined" ? null : document.getElementById("tip");
 function showTip(event, html) {
   tip.innerHTML = html;
   tip.classList.add("on");
@@ -89,7 +118,26 @@ function hoverable(node, html) {
 
 /* ---------- state ---------- */
 
-const state = { activity: [], summary: [], comparison: [], runId: null, condition: null, view: "overview" };
+const state = {
+  activity: [], summary: [], comparison: [], runId: null, condition: null,
+  view: "overview", promptId: null, diagnostics: {},
+};
+
+/* 프리셋 3종(small/large/very-large)과 사용자 지정 프롬프트(custom:<hash>)를
+   구분해서 볼 수 있어야 한다는 요구로 추가됐다. 필터를 안 걸면(promptId가
+   null) 지금까지처럼 전부 섞어서 보여준다 - 기존 동작을 안 바꾸는 기본값. */
+function drawPromptPicker() {
+  const ids = [...new Set(state.summary.map((r) => r.prompt_id).filter(Boolean))].sort();
+  const picker = document.getElementById("prompt-picker");
+  if (state.promptId && !ids.includes(state.promptId)) state.promptId = null;
+  picker.innerHTML = '<option value="">전체</option>' +
+    ids.map((id) => `<option value="${id}">${id}</option>`).join("");
+  picker.value = state.promptId || "";
+  picker.onchange = () => {
+    state.promptId = picker.value || null;
+    render();
+  };
+}
 
 const toolsOf = (row) => (row.tools ? row.tools.split(" ").filter(Boolean) : []);
 
@@ -179,8 +227,9 @@ function buildRuns() {
 
   const runs = [];
   byKey.forEach((rows, key) => {
-    rows.sort((a, b) => num(a.turn) - num(b.turn));
     const s = summaryByKey.get(key) || {};
+    if (state.promptId && s.prompt_id !== state.promptId) return;
+    rows.sort((a, b) => num(a.turn) - num(b.turn));
     const sum = (f) => rows.reduce((a, r) => a + num(r[f]), 0);
     const turns = rows.length;
     runs.push({
@@ -242,13 +291,22 @@ function conditionRank(condition) {
   return index === -1 ? CONDITION_ORDER.length : index;
 }
 
+/* comparison.csv is grouped by (run_date, prompt_id) so a BASE run on the
+   large preset never gets compared against a HEADROOM run on small. When a
+   preset filter is active, only that group's rows apply. */
+function comparisonRows() {
+  return state.promptId
+    ? state.comparison.filter((r) => r.prompt_id === state.promptId)
+    : state.comparison;
+}
+
 function buildBatches(runs) {
   const byDate = new Map();
   runs.forEach((r) => {
     if (!byDate.has(r.run_date)) byDate.set(r.run_date, []);
     byDate.get(r.run_date).push(r);
   });
-  const published = new Map(state.comparison.map((r) => [r.run_date, r]));
+  const published = new Map(comparisonRows().map((r) => [r.run_date, r]));
   const batches = [];
   [...byDate.keys()].sort(byBatch).forEach((date) => {
     const all = byDate.get(date);
@@ -273,13 +331,14 @@ function buildBatches(runs) {
    against its own baseline, so this is a mean of results - not a second
    implementation of the comparison. */
 function buildComparison() {
+  const rowsSource = comparisonRows();
   const perCondition = new Map();
-  state.comparison.forEach((row) => {
+  rowsSource.forEach((row) => {
     if (!perCondition.has(row.condition)) perCondition.set(row.condition, []);
     perCondition.get(row.condition).push(row);
   });
   const floors = (field) => {
-    const values = state.comparison
+    const values = rowsSource
       .filter((r) => r[field] !== "")
       .map((r) => ({ date: r.run_date, value: num(r[field]) }));
     const byDate = new Map(values.map((v) => [v.date, v.value]));
@@ -338,6 +397,21 @@ function drawVerdict(data) {
         관측이라, 아직 방향을 확인한 것이지 크기를 잰 것은 아닙니다.` : ""}`;
 }
 
+/* 스코프 자리의 내용. 실행 상세처럼 고를 게 있는 탭은 컨트롤이 들어가고,
+   고를 게 없는 탭은 "지금 무엇을 보고 있는지"를 같은 자리에 적는다. */
+function drawScope(data) {
+  const conditions = new Set(data.runs.map((r) => r.condition));
+  const chips = [
+    `회차 <b>${data.batches.length}</b>`,
+    `실행 <b>${data.runs.length}</b>`,
+    `조건 <b>${conditions.size}</b>`,
+  ].map((text) => `<span class="chip">${text}</span>`).join("");
+  ["scope-overview", "scope-verify"].forEach((id) => {
+    const box = document.getElementById(id);
+    if (box) box.innerHTML = chips;
+  });
+}
+
 function drawCorpusKpis(data) {
   const box = document.getElementById("corpus-kpis");
   box.innerHTML = "";
@@ -373,7 +447,8 @@ function drawDelta(data) {
 
   const padL = 96, padR = 76, padT = 26, padB = 28;
   const rowH = 58, barH = 18, gap = 4;
-  const width = 720;
+  const width = boxWidth("delta", 720);
+  if (unchanged("delta", chartSignature(width, rows.length))) return;
   const height = padT + padB + Math.max(1, rows.length) * rowH;
   const svg = frame("delta", width, height);
   if (!rows.length) { note.textContent = ""; return; }
@@ -435,8 +510,64 @@ function drawDelta(data) {
   note.textContent = "막대가 회색 띠 안에 있으면 BASE 실행끼리의 변동과 구별되지 않습니다.";
 }
 
-function drawConditionTable(data) {
+/* 개요의 요약 표. 결과 검증 탭의 전체 표와 달리 "이 차이를 효과로 읽어도
+   되는가"만 답한다. 판단 기준(noise floor)은 해석 가이드 카드에 있다. */
+function drawOverviewTable(data) {
   const table = document.getElementById("condition-table");
+  table.innerHTML = "";
+  const head = table.insertRow();
+  ["조건", "비교 대상", "사례 수", "평균 차이 (처리 토큰)", "평균 차이 (비용)", "해석"]
+    .forEach((label) => { const th = document.createElement("th"); th.textContent = label; head.appendChild(th); });
+
+  data.rows.forEach((delta) => {
+    const beats = data.noise.processed != null && data.noise.cost != null &&
+      Math.abs(delta.processed) > data.noise.processed && Math.abs(delta.cost) > data.noise.cost;
+    const row = table.insertRow();
+    const cells = [
+      delta.condition,
+      "BASE",
+      `${delta.runs}건 · ${delta.batches}회차`,
+      pct(delta.processed),
+      pct(delta.cost),
+      beats ? "자연 변동 범위를 넘어선 절감" : "변동 폭 안에 있음",
+    ];
+    cells.forEach((value, i) => {
+      const cell = row.insertCell();
+      cell.textContent = value;
+      if (i === 3) cell.className = delta.processed < 0 ? "good" : "bad";
+      if (i === 4) cell.className = delta.cost < 0 ? "good" : "bad";
+    });
+  });
+}
+
+/* 결과를 읽는 기준을 결론 옆에 둔다. 숫자는 comparison.csv의 noise floor를
+   그대로 쓰고, 문장은 verdict와 같은 판단을 반복한다. */
+function drawGuide(data) {
+  const box = document.getElementById("guide");
+  const { noise } = data;
+  const show = (v) => (v == null ? "—" : `±${v.toFixed(1)}%`);
+  box.innerHTML = `
+    <div class="panel">
+      <h3 class="tight">실행 간 자연 변동 범위 (noise floor)</h3>
+      <div class="panel-row">
+        <div class="panel-figures">
+          <div><span class="label">처리 토큰</span><b class="figure series-1">${show(noise.processed)}</b></div>
+          <div><span class="label">비용</span><b class="figure series-5">${show(noise.cost)}</b></div>
+        </div>
+        <p class="muted">각 조건의 결과를 이 변동 범위와 비교해 해석합니다.
+        막대가 회색 영역을 벗어나면 자연 변동을 넘어선 차이로 판단할 수 있습니다.</p>
+      </div>
+    </div>
+    <div class="callout">
+      <h3 class="tight">핵심 해석</h3>
+      <p id="guide-verdict"></p>
+    </div>`;
+  document.getElementById("guide-verdict").innerHTML =
+    document.getElementById("verdict-note").innerHTML;
+}
+
+function drawConditionTable(data) {
+  const table = document.getElementById("condition-table-verify");
   table.innerHTML = "";
   const head = table.insertRow();
   ["조건", "실행", "평균 처리 토큰", "평균 비용", "평균 context tax", "vs BASE 처리", "vs BASE 비용", "noise 초과", "평균 품질"]
@@ -679,21 +810,54 @@ function turnStory(row, run) {
     ${why ? `<br><span class="muted">${why}.</span>` : ""}</li>`;
 }
 
-function expensiveSection(run) {
+/* 상위 세 턴을 한 줄씩. 왼쪽은 그 턴이 무엇을 했는지, 오른쪽은 왜 비쌌는지를
+   설명하는 세 수치(남은 턴 수, 전체 대비 비중, 중앙값 대비 크기)다. */
+function turnRow(row, run, lead) {
+  const role = roleOf(row);
+  const tax = num(row.context_tax_tokens);
+  const result = num(row.result_tokens);
+  const remaining = result ? Math.round(tax / result) : 0;
+  const share = (tax / (run.tax || 1)) * 100;
+  const ratio = resultOutlierRatio(row, run);
+  const what = targetPhrase(row);
+  return `<div class="turn-row${lead ? " lead" : ""}">
+    <div class="turn-what">
+      <b>턴 ${row.turn}</b>
+      <span>${ROLE_TEXT[role ? role.kind : "other"][0]} 턴</span>
+      ${what ? `<span class="targets">${what}</span>` : ""}
+    </div>
+    <div class="turn-figure"><b>${fmt(tax)}</b> 토큰</div>
+    <div class="turn-metrics">
+      <div><span class="label">남은</span>${remaining}턴</div>
+      <div><span class="label">전체의</span>${share.toFixed(1)}%</div>
+      <div><span class="label">중앙값보다</span>${ratio >= 2 ? `${ratio.toFixed(1)}배` : "—"}</div>
+    </div>
+  </div>`;
+}
+
+function drawTopTurns(data) {
+  const box = document.getElementById("top-turns");
+  const run = data.runs.find((r) => r.key === state.runId);
+  if (!run) { box.innerHTML = `<p class="empty">실행을 선택하세요.</p>`; return; }
   const top = [...run.rows]
     .sort((a, b) => num(b.context_tax_tokens) - num(a.context_tax_tokens))
     .slice(0, 3)
     .filter((r) => num(r.context_tax_tokens) > 0);
-  if (!top.length) return `<p class="sub">이 실행에는 context tax가 잡힌 턴이 없습니다.</p>`;
+  if (!top.length) {
+    box.innerHTML = `<p class="sub">이 실행에는 context tax가 잡힌 턴이 없습니다.</p>`;
+    return;
+  }
   const head = top[0];
-  const headRole = roleOf(head);
   const early = num(head.turn) <= Math.ceil(run.turns / 3);
-  return `<p class="sub">가장 비쌌던 턴은 <strong>턴 ${head.turn}</strong>입니다.
-    ${ROLE_TEXT[headRole ? headRole.kind : "other"][0]} 턴이었고,
+  box.innerHTML = `<p class="muted">가장 비쌌던 턴은 <strong>턴 ${head.turn}</strong>입니다.
     ${early
-      ? "실행 앞쪽에서 일어나 남은 턴이 많았습니다. 같은 크기라도 앞 턴에서 들어온 내용이 더 오래, 더 여러 번 다시 실립니다."
-      : "실행 뒤쪽이라 다시 실릴 턴이 적었는데도 상위에 올랐습니다. 들여온 내용 자체가 컸다는 뜻입니다."}</p>
-    <ul class="notes">${top.map((r) => turnStory(r, run)).join("")}</ul>`;
+      ? "실행 앞쪽에서 일어나 남은 턴이 많았습니다 — 같은 크기라도 앞 턴에서 들어온 내용이 더 오래, 더 여러 번 다시 실립니다."
+      : "실행 뒤쪽이라 다시 실릴 턴이 적었는데도 상위에 올랐습니다 — 들여온 내용 자체가 컸다는 뜻입니다."}</p>
+    ${top.map((r, i) => turnRow(r, run, i === 0)).join("")}
+    <details class="turn-detail">
+      <summary>턴별 근거 문장 보기</summary>
+      <ul class="notes">${top.map((r) => turnStory(r, run)).join("")}</ul>
+    </details>`;
 }
 
 function drawReport(data) {
@@ -707,22 +871,36 @@ function drawReport(data) {
         .sort((a, b) => Math.abs(b.d) - Math.abs(a.d))
         .slice(0, 3)
     : [];
-  box.innerHTML = `
-    <h3>왜 이렇게 갈렸나</h3>
-    ${base
-      ? `<ul class="notes">${parts.map((p) =>
-          `<li><b>${p.label} ${signed(p.d)} 토큰</b> — ${componentNote(p.key, run, base)}</li>`).join("")}</ul>`
-      : missingBaseline(run)}
-    <h3>토큰이 가장 많이 든 턴</h3>
-    ${expensiveSection(run)}`;
+  /* 비교할 BASE가 없다는 안내는 바로 위 "BASE 대비"가 이미 하고 있다.
+     같은 문장을 한 카드 안에서 두 번 쓰지 않는다. */
+  const diag = state.diagnostics[run.run_id];
+  /* "어디서 더 썼다"(정량, 위 목록)와 "왜 더 썼다"(정성 - 테스트 실패해서
+     고쳤다, 같은 파일 다시 읽었다 등)는 서로 다른 질문이다. 후자가 없으면
+     "이 실행에는 그런 사건이 없었다"고 분명히 말한다 - 조용히 생략하면
+     "아직 못 찾았다"인지 "없었다"인지 구분이 안 된다. */
+  const causeBlock = `<h4 class="tight">실제로 무슨 일이 있었나</h4>
+    ${diag
+      ? `<ul class="notes">${diag.events.map((e) => `<li>${e.summary}</li>`).join("")}</ul>`
+      : `<p class="muted">테스트 실패·재수정, 같은 파일 재확인 같은 사건은 감지되지 않았습니다
+         — turn 수·토큰 차이는 정상적인 실행 편차로 보입니다.</p>`}`;
+  box.innerHTML = base
+    ? `<h3>왜 이렇게 갈렸나</h3>
+       <ul class="notes">${parts.map((p) =>
+         `<li><b>${p.label} ${signed(p.d)} 토큰</b> — ${componentNote(p.key, run, base)}</li>`).join("")}</ul>
+       ${causeBlock}`
+    : `<h3>왜 이렇게 갈렸나</h3>${causeBlock}`;
 }
 
 /* ---------- run charts ---------- */
 
 function drawTimeline(turns) {
   const padL = 64, padR = 16, padT = 14, padB = 34;
-  const bw = 22, gap = 6;
-  const width = Math.max(720, padL + padR + turns.length * (bw + gap));
+  /* 2단 레이아웃의 카드 폭(약 560px)에 맞춘다. 턴이 많으면 막대를 좁혀
+     가로 스크롤 없이 실행 전체 모양이 한눈에 들어오게 한다. */
+  const width = boxWidth("timeline", 560);
+  if (unchanged("timeline", chartSignature(width, state.runId))) return;
+  const gap = turns.length > 24 ? 2 : 6;
+  const bw = Math.max(3, (width - padL - padR) / Math.max(1, turns.length) - gap);
   const height = 260, plot = height - padT - padB;
   const svg = frame("timeline", width, height);
   const max = Math.max(1, ...turns.map((r) => num(r.context_tax_tokens)));
@@ -761,7 +939,8 @@ function drawTimeline(turns) {
 
 function drawGrowth(turns) {
   const padL = 64, padR = 16, padT = 14, padB = 34;
-  const width = Math.max(720, padL + padR + turns.length * 28);
+  const width = boxWidth("growth", 560);
+  if (unchanged("growth", chartSignature(width, state.runId))) return;
   const height = 220, plot = height - padT - padB;
   const svg = frame("growth", width, height);
   const max = Math.max(1, ...turns.map((r) => num(r.context_tokens)));
@@ -825,7 +1004,8 @@ function drawTools(turns) {
   });
   const items = [...tally.entries()].sort((a, b) => b[1] - a[1]);
   const rowH = 30, padL = 130, padR = 90, padT = 6;
-  const width = 720, height = Math.max(60, padT + items.length * rowH + 6);
+  const width = boxWidth("tools", 560), height = Math.max(60, padT + items.length * rowH + 6);
+  if (unchanged("tools", chartSignature(width, state.runId))) return;
   const svg = frame("tools", width, height);
   if (!items.length) return;
   const max = Math.max(...items.map(([, v]) => v)) || 1;
@@ -857,7 +1037,8 @@ function drawTrend() {
   legend.innerHTML = "";
 
   const padL = 64, padR = 90, padT = 14, padB = 34;
-  const width = 720, height = 240, plot = height - padT - padB;
+  const width = boxWidth("trend", 560), height = 240, plot = height - padT - padB;
+  if (unchanged("trend", chartSignature(width, ""))) return;
   const svg = frame("trend", width, height);
   const values = state.summary.map((r) => num(r.cost_usd));
   const max = Math.max(0.1, ...values) * 1.15;
@@ -996,9 +1177,14 @@ function drawKpis(turns) {
    matter how many rounds pile up. A round adds an entry inside its condition's
    "날짜별 상세" list, not a new top-level choice. */
 function runsGroupedByCondition() {
+  const allowed = state.promptId
+    ? new Set(state.summary.filter((r) => r.prompt_id === state.promptId)
+        .map((r) => `${r.run_date}/${r.run_id}`))
+    : null;
   const byId = new Map();
   state.activity.forEach((r) => {
     const id = `${r.run_date}/${r.run_id}`;
+    if (allowed && !allowed.has(id)) return;
     if (!byId.has(id)) byId.set(id, r);
   });
   const groups = new Map();
@@ -1037,32 +1223,34 @@ function drawRunPicker() {
     state.runId = entries.length ? entries[entries.length - 1].id : null;
   }
 
-  const list = document.getElementById("run-picker-list");
+  const list = document.getElementById("run-select");
   list.innerHTML = "";
   entries.forEach((entry) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.textContent = `${entry.run_date} · ${entry.run_id}`;
-    button.setAttribute("aria-pressed", String(entry.id === state.runId));
-    button.addEventListener("click", () => {
-      if (state.runId === entry.id) return;
-      state.runId = entry.id;
-      render();
-    });
-    list.appendChild(button);
+    const option = document.createElement("option");
+    option.value = entry.id;
+    option.textContent = `${entry.run_date} · ${entry.run_id}`;
+    option.selected = entry.id === state.runId;
+    list.appendChild(option);
   });
-  document.getElementById("run-picker-count").textContent = `${entries.length}건`;
+  list.onchange = () => { state.runId = list.value; render(); };
+
+  document.getElementById("run-picker-count").textContent = `${entries.length}건 중`;
 }
 
 function render() {
+  drawPromptPicker();
   const data = corpus();
+  drawScope(data);
   drawVerdict(data);
   drawCorpusKpis(data);
   drawDelta(data);
+  drawGuide(data);
+  drawOverviewTable(data);
   drawConditionTable(data);
   drawTrend();
 
   drawRunPicker();
+  drawTopTurns(data);
   drawKpis(turnsFor(state.runId));
   drawReconcileCheck();
   drawRunDelta(data);
@@ -1074,14 +1262,112 @@ function render() {
   drawTable(turns);
 }
 
+const VIEWS = ["overview", "run", "verify", "settings"];
+
 function showView(view) {
-  state.view = view === "run" ? "run" : "overview";
-  document.getElementById("view-overview").hidden = state.view !== "overview";
-  document.getElementById("view-run").hidden = state.view !== "run";
+  state.view = VIEWS.includes(view) ? view : "overview";
+  VIEWS.forEach((name) => {
+    document.getElementById(`view-${name}`).hidden = name !== state.view;
+  });
   document.querySelectorAll("#tabs button").forEach((b) => {
     b.setAttribute("aria-selected", String(b.dataset.view === state.view));
   });
   if (location.hash.slice(1) !== state.view) location.hash = state.view;
+  render();
+}
+
+/* ---------- token-bench 실행 결과 (결과 검증 탭) ---------- */
+
+/* 이 배열의 이름과 순서는 token_bench/publish.py의 CSV_COLUMNS와 반드시 같아야
+   한다(같은 스키마를 두 곳에 둘 수밖에 없어서 tests/test_web.py가 일치를 검사한다). */
+const CSV_COLUMNS = [
+  "run_id", "batch_id", "condition_id", "repeat_index", "content_id",
+  "auth_method", "api_provider", "claude_version", "model", "status",
+  "evaluation_ran", "evaluation_passed", "num_turns", "cost_usd",
+  "input_tokens", "output_tokens", "cache_creation_input_tokens",
+  "cache_read_input_tokens", "started_at", "finished_at", "duration_seconds",
+];
+
+const missing = (v) => v === undefined || v === "";
+const orNull = (v) => (missing(v) ? null : Number(v));
+
+/* 결측(null)을 0으로 취급하지 않고 평균에서 빼는 버전. 위쪽 `mean`과 달리
+   남은 값이 없으면 0이 아니라 null을 돌려준다. */
+function meanPresent(values) {
+  const present = values.filter((v) => v !== null && !Number.isNaN(v));
+  return present.length === 0 ? null : present.reduce((a, b) => a + b, 0) / present.length;
+}
+
+function fixed(value, digits = 2) {
+  return value === null ? "—" : value.toFixed(digits);
+}
+
+function summarizeByCondition(records) {
+  const byCondition = new Map();
+  for (const r of records) {
+    if (!byCondition.has(r.condition_id)) byCondition.set(r.condition_id, []);
+    byCondition.get(r.condition_id).push(r);
+  }
+  return [...byCondition.entries()].map(([conditionId, rows]) => {
+    const evaluated = rows.filter((r) => r.evaluation_ran === "True");
+    const passed = evaluated.filter((r) => r.evaluation_passed === "True");
+    return {
+      conditionId,
+      runCount: rows.length,
+      avgCost: meanPresent(rows.map((r) => orNull(r.cost_usd))),
+      avgTurns: meanPresent(rows.map((r) => orNull(r.num_turns))),
+      avgOutputTokens: meanPresent(rows.map((r) => orNull(r.output_tokens))),
+      avgCacheReadTokens: meanPresent(rows.map((r) => orNull(r.cache_read_input_tokens))),
+      passRate: evaluated.length === 0 ? null : passed.length / evaluated.length,
+      evaluatedCount: evaluated.length,
+    };
+  });
+}
+
+function cell(row, text) {
+  const td = row.insertCell();
+  td.textContent = text;
+  return td;
+}
+
+function drawBench(records) {
+  const note = document.getElementById("bench-status");
+  const summaryBody = document.querySelector("#summary-table tbody");
+  const detailBody = document.querySelector("#detail-table tbody");
+  summaryBody.innerHTML = "";
+  detailBody.innerHTML = "";
+
+  if (records.length === 0) {
+    note.textContent = "아직 게시된 실행 결과가 없습니다. `token_bench publish`로 결과를 게시하세요.";
+    return;
+  }
+  note.textContent = `${records.length}개 실행 결과를 표시했습니다.`;
+
+  for (const s of summarizeByCondition(records)) {
+    const row = summaryBody.insertRow();
+    cell(row, s.conditionId).style.textAlign = "left";
+    cell(row, String(s.runCount));
+    cell(row, fixed(s.avgCost, 3));
+    cell(row, fixed(s.avgTurns, 1));
+    cell(row, fixed(s.avgOutputTokens, 0));
+    cell(row, fixed(s.avgCacheReadTokens, 0));
+    cell(row, s.passRate === null ? "—"
+      : `${(s.passRate * 100).toFixed(0)}% (${s.evaluatedCount}건 중)`);
+  }
+
+  for (const r of records) {
+    const row = detailBody.insertRow();
+    cell(row, r.run_id).style.textAlign = "left";
+    cell(row, r.condition_id);
+    cell(row, r.repeat_index);
+    cell(row, r.status);
+    cell(row, missing(r.model) ? "" : r.model);
+    cell(row, missing(r.cost_usd) ? "" : r.cost_usd);
+    cell(row, missing(r.num_turns) ? "" : r.num_turns);
+    cell(row, r.evaluation_ran === "True" ? (r.evaluation_passed === "True" ? "통과" : "실패") : "—");
+    cell(row, missing(r.started_at) ? "" : r.started_at);
+    cell(row, missing(r.finished_at) ? "" : r.finished_at);
+  }
 }
 
 /* ---------- boot ---------- */
@@ -1089,7 +1375,7 @@ function showView(view) {
 async function load(path) {
   const response = await fetch(path);
   if (!response.ok) throw new Error(`${path}: ${response.status}`);
-  return parseCsv(await response.text());
+  return toRecords(parseCsv(await response.text()));
 }
 
 async function boot() {
@@ -1099,13 +1385,33 @@ async function boot() {
       load("../data/comparison.csv"),
     ]);
   } catch (error) {
+    /* 데이터가 아예 없어도(방금 지운 상태 등) 탭 전환·"실험 설정"은 계속 써야
+       한다 - 여기서 return하면 아래의 탭 클릭·hash 연결이 안 걸려서 페이지가
+       개요에 고정돼 버린다. state.activity/summary/comparison은 이미 []로
+       초기화돼 있으니 그대로 두고 계속 진행한다. */
     document.querySelector(".wrap").insertAdjacentHTML("beforeend",
       `<section class="card"><h2>데이터를 불러오지 못했습니다</h2>
        <p class="sub">${error.message}</p>
        <p class="muted">저장소 루트에서 <code>python3 -m http.server</code>를 실행한 뒤
        <code>/web/</code>을 여세요. <code>file://</code>로 직접 열면 브라우저가 CSV 읽기를 막습니다.</p>
        </section>`);
-    return;
+  }
+
+  /* 실패·재확인처럼 "왜 이렇게 갈렸나"에 쓸 정성적 원인. 특이사항 있는
+     실행만 항목이 있으므로 파일 자체가 없을 수 있다 - 그럼 그냥 빈 객체. */
+  try {
+    const res = await fetch("../data/run-diagnostics.json");
+    state.diagnostics = res.ok ? await res.json() : {};
+  } catch {
+    state.diagnostics = {};
+  }
+
+  /* 새 파이프라인 CSV는 아직 비어 있을 수 있다. 실패해도 나머지 화면은 그린다. */
+  try {
+    drawBench(await load("../data/token-bench-results.csv"));
+  } catch (error) {
+    document.getElementById("bench-status").textContent =
+      `token-bench 결과를 불러오지 못했습니다: ${error.message}`;
   }
 
   document.querySelectorAll("#tabs button").forEach((b) => {
@@ -1121,8 +1427,19 @@ async function boot() {
     render();
   });
 
+  let resizing = null;
+  addEventListener("resize", () => {
+    clearTimeout(resizing);
+    resizing = setTimeout(render, 150);
+  });
+
   showView(location.hash.slice(1) || "overview");
-  render();
 }
 
-boot();
+if (typeof document !== "undefined") boot();
+
+/* Node 기반 테스트(tests/test_web.py)가 순수 함수만 불러 쓸 수 있게 한다.
+   브라우저에는 `module`이 없으므로 이 블록은 아무 효과가 없다. */
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = { parseCsv, toRecords, summarizeByCondition, CSV_COLUMNS };
+}
