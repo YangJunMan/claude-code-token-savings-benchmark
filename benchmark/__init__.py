@@ -1,1 +1,0 @@
-"""Token optimizer benchmark harness."""
