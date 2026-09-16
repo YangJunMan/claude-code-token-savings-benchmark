@@ -19,3 +19,7 @@ archive/
 
 # 개인 git worktree (자체 .git 포함, 절대 커밋 금지)
 .claude/worktrees/
+
+# 에이전트 작업 지침 — 사용자가 볼 필요 없는 md
+AGENTS.md
+CLAUDE.md
