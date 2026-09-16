@@ -1,4 +1,4 @@
-# Production implementation task
+# Production implementation task (large preset)
 
 Work entirely in English. Use English for code comments, documentation, test names, implementation notes, and the final response.
 
@@ -19,16 +19,25 @@ You are taking ownership of an incomplete Kubernetes GPU batch admission service
 11. Expand test coverage in `tests/`: unit tests for the state machine and errors, integration tests for the store and migration, and concurrency tests that use real threads to prove the idempotency and GPU-limit invariants hold under contention. Do not modify or weaken existing tests.
 12. Update `.github/workflows/test.yml`, `docs/decision.md` (the architecture decision), and `docs/operations.md` (the runbook, including the new CLI commands and failure recovery).
 
+### Additional required behavior (large preset)
+
+13. Add weighted fair-share scheduling on top of priority/FIFO: track recent GPU-second consumption per user in `JobStore` and let `AdmissionService.claim_next` prefer users under their fair share when priorities tie, with a documented tie-break when shares tie too.
+14. Add a job dependency graph: `AdmissionService.submit` accepts an optional `depends_on: list[job_id]`, a dependent job cannot be claimed until all its dependencies reach a terminal success state, a failed/dead-lettered dependency must transition dependents to a new `blocked` terminal state (not silently keep them queued forever), and cyclic dependencies must be rejected at submission time with a typed error.
+15. Add a second Prometheus-style metric family for fair-share and dependency-graph state (per-user consumed share, blocked-job count, longest pending dependency chain depth) and extend the transition log schema with a `caused_by` field that names the triggering event (heartbeat, lease expiry, dependency resolution, operator command).
+16. Add an admin CLI subcommand `requeue` that moves a `dead_letter` job back to `queued` with a reset attempt counter, only when explicitly forced, and that records the operator action in the transition log distinctly from automatic transitions.
+17. Add a `docs/scheduling.md` design document explaining the fair-share algorithm, its complexity, and the dependency-graph cycle-detection approach, with at least one worked numeric example.
+18. Extend `k8s/deployment.yaml` with a `PodDisruptionBudget` and a `HorizontalPodAutoscaler` driven by the new queue-depth metric, and explain in `docs/operations.md` how they interact with graceful shutdown during a scale-down.
+
 ## Size and shape
 
 Aim for roughly this distribution of changed lines. These are guidance, not a limit to spend turns trimming toward:
 
 | Area | Target |
 |---|---|
-| Implementation code (`gpu_platform/`, `migrations/`) | 400-500 lines |
-| Tests (`tests/`) | 250-350 lines |
-| Kubernetes and CI | 40-80 lines |
-| Documentation | 80-120 lines |
+| Implementation code (`gpu_platform/`, `migrations/`) | 700-900 lines |
+| Tests (`tests/`) | 450-600 lines |
+| Kubernetes and CI | 80-140 lines |
+| Documentation | 150-220 lines |
 
 Documentation must stay smaller than the code and test changes.
 
@@ -41,4 +50,4 @@ Documentation must stay smaller than the code and test changes.
 
 ## Final response
 
-Report the changed files, the important design decisions and trade-offs, the exact test commands you ran with their results, operational limitations, and anything you did not complete. Do not claim a test passed unless you actually ran it and saw it pass.
+Report the changed files, the important design decisions and trade-offs (especially for fair-share scheduling and the dependency graph), the exact test commands you ran with their results, operational limitations, and anything you did not complete. Do not claim a test passed unless you actually ran it and saw it pass.
