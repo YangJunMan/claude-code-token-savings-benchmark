@@ -178,11 +178,23 @@ async function onSubmit() {
       }),
     });
 
-    status.textContent =
-      "승인하고 큐에 등록했습니다. `token_bench work`를 실행해 처리하세요.";
+    status.textContent = "승인하고 큐에 등록했습니다. 서버가 자동으로 실행합니다.";
     await refreshStatus();
   } catch (err) {
     status.textContent = `등록 실패: ${err.message}`;
+  }
+}
+
+async function onStop() {
+  const status = document.getElementById("status");
+  try {
+    const body = await fetchJson("/api/stop", { method: "POST" });
+    status.textContent = body.stopped
+      ? "실행 중인 작업을 중지했습니다."
+      : "지금 실행 중인 작업이 없습니다.";
+    await refreshStatus();
+  } catch (err) {
+    status.textContent = `중지 실패: ${err.message}`;
   }
 }
 
@@ -428,6 +440,7 @@ function closeAddConditionModal() {
 function main() {
   document.getElementById("plan-btn").addEventListener("click", onPlan);
   document.getElementById("submit-btn").addEventListener("click", onSubmit);
+  document.getElementById("stop-btn").addEventListener("click", onStop);
 
   document.getElementById("add-condition-btn").addEventListener("click", openAddConditionModal);
   document.getElementById("ac-close-btn").addEventListener("click", closeAddConditionModal);

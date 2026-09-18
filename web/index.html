@@ -309,7 +309,7 @@
 
     <section class="card col-12" id="plan-section" hidden>
       <h2>3. 승인하고 등록</h2>
-      <p class="muted">이 내용 그대로 큐에 등록합니다. 실행은 <code>token_bench work</code>가 시작합니다.</p>
+      <p class="muted">이 내용 그대로 큐에 등록합니다. 서버가 켜져 있는 동안 자동으로 실행됩니다.</p>
       <div class="kpi-row tight-kpis" id="plan-kpis"></div>
       <div class="scroll-x"><table id="plan-table">
         <thead><tr><th>실행할 스킬</th><th>반복</th></tr></thead>
@@ -324,7 +324,7 @@
 
     <section class="card col-12">
       <h2>등록된 작업 상태</h2>
-      <p class="muted">큐에 등록된 작업과 현재 상태입니다. 실행은 터미널에서 <code>token_bench work</code>를 돌려야 시작됩니다 — Windows·WSL·Linux·macOS 어디서나 같은 명령입니다.</p>
+      <p class="muted">큐에 등록된 작업과 현재 상태입니다. 서버가 켜져 있는 동안 큐에 쌓인 작업을 자동으로 순서대로 실행합니다.</p>
       <div class="table-scroll"><table id="jobs-table">
         <thead><tr><th>run_id</th><th>조건</th><th>상태</th><th>등록 시각</th></tr></thead>
         <tbody></tbody>
@@ -335,6 +335,7 @@
     <section class="card col-12" id="live-log-section" hidden>
       <h2>지금 실행 중 — <code id="live-log-run-id"></code></h2>
       <p class="muted">실행 중인 작업의 stdout을 몇 초마다 읽어 옵니다. 모델이 끝낸 뒤에는 갱신을 멈춥니다.</p>
+      <div class="controls"><button id="stop-btn" type="button">실험 중지</button></div>
       <div id="live-log" class="live-log"></div>
     </section>
   </div>
