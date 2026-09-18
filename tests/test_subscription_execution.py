@@ -118,6 +118,29 @@ def test_run_once_kills_process_on_timeout(tmp_path):
     assert outcome.duration_seconds < 10
 
 
+def test_run_once_cancels_immediately_without_waiting_for_timeout(tmp_path):
+    fake_claude = _write_fake_claude(tmp_path, "import time; time.sleep(30)")
+    workdir = tmp_path / "workdir"
+    workdir.mkdir()
+    cancel_event = threading.Event()
+    cancel_event.set()
+
+    outcome = run_once(
+        run_id="r1",
+        prompt="hello",
+        injections=(),
+        cwd=workdir,
+        timeout_seconds=30,
+        log_dir=tmp_path / "logs",
+        env=dict(os.environ),
+        claude_bin=str(fake_claude),
+        cancel_event=cancel_event,
+    )
+
+    assert outcome.status == "cancelled"
+    assert outcome.duration_seconds < 10
+
+
 def test_run_once_raises_when_binary_missing(tmp_path):
     workdir = tmp_path / "workdir"
     workdir.mkdir()

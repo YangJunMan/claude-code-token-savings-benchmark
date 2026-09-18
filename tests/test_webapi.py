@@ -2,6 +2,7 @@ import json
 import os
 import shutil
 import threading
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -58,7 +59,7 @@ def sandbox(tmp_path, monkeypatch):
 
 @pytest.fixture()
 def server():
-    srv = serve(host="127.0.0.1", port=0)
+    srv = serve(host="127.0.0.1", port=0, auto_run=False)
     thread = threading.Thread(target=srv.serve_forever, daemon=True)
     thread.start()
     yield srv
@@ -350,3 +351,81 @@ def test_log_endpoint_requires_run_id(sandbox, server):
 def test_log_endpoint_unknown_run_id_is_404(sandbox, server):
     status, body = _get_json(server, "/api/log?run_id=nope")
     assert status == 404
+
+
+def _write_slow_fake_claude(bin_dir: Path) -> None:
+    """--version/auth/--help에는 바로 답하고, 실제 실행 호출은 오래 붙잡아 둔다.
+
+    /api/stop이 timeout을 기다리지 않고 바로 끊는지 확인하려면 실행 중인
+    프로세스가 있어야 한다.
+    """
+
+    python_body = '''
+import sys, time
+
+arg = sys.argv[1] if len(sys.argv) > 1 else ""
+if arg == "--version":
+    print("2.1.236 (Claude Code)")
+elif arg == "auth":
+    print('{"loggedIn": true, "authMethod": "claude.ai", "apiProvider": "firstParty", "subscriptionType": "pro"}')
+elif arg == "--help":
+    print("--safe-mode --settings <file-or-json> --permission-mode <mode>")
+else:
+    time.sleep(30)
+'''
+    write_fake_cli(bin_dir, "claude", python_body)
+
+
+def test_auto_run_executes_queued_job_and_stop_button_cancels_it(tmp_path, monkeypatch):
+    shutil.copytree(REPO_ROOT / "benchmark" / "fixture", tmp_path / "benchmark" / "fixture")
+    shutil.copytree(REPO_ROOT / "benchmark" / "prompts", tmp_path / "benchmark" / "prompts")
+    _copy_runnable_conditions(tmp_path / "benchmark" / "conditions.json")
+    fake_bin = tmp_path / "fakebin"
+    _write_slow_fake_claude(fake_bin)
+    monkeypatch.setenv("PATH", f"{fake_bin}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.chdir(tmp_path)
+
+    srv = serve(host="127.0.0.1", port=0, auto_run=True)
+    thread = threading.Thread(target=srv.serve_forever, daemon=True)
+    thread.start()
+    try:
+        status, body = _post_json(
+            srv, "/api/estimate", {"include": ["base"], "timeout_seconds": 60}
+        )
+        assert status == 200, body
+        plan_path, digest = body["plan_path"], body["plan"]["digest"]
+
+        status, body = _post_json(
+            srv, "/api/approve", {"plan_path": plan_path, "confirm_digest": digest}
+        )
+        approval_path = body["approval_path"]
+
+        status, body = _post_json(
+            srv, "/api/enqueue", {"plan_path": plan_path, "approval_path": approval_path}
+        )
+        run_id = body["jobs"][0]["run_id"]
+
+        def wait_for_status(expected: str) -> str:
+            deadline = time.monotonic() + 10
+            job_status = None
+            while time.monotonic() < deadline:
+                _, status_body = _get_json(srv, "/api/status")
+                job_status = next(
+                    j["status"] for j in status_body["jobs"] if j["run_id"] == run_id
+                )
+                if job_status == expected:
+                    return job_status
+                time.sleep(0.2)
+            return job_status
+
+        assert wait_for_status("running") == "running"
+
+        status, body = _post_json(srv, "/api/stop", {})
+        assert status == 200
+        assert body["stopped"] is True
+
+        assert wait_for_status("cancelled") == "cancelled"
+    finally:
+        srv.shutdown()
+        srv.server_close()
+        thread.join(timeout=5)

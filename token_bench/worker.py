@@ -18,6 +18,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import threading
 import time
 import urllib.request
 from dataclasses import dataclass
@@ -47,6 +48,7 @@ DEFAULT_ISOLATION = "safe-mode"
 PERMISSION_MODE = "bypassPermissions"
 
 TERMINATE_GRACE_SECONDS = 5
+CANCEL_POLL_SECONDS = 0.5
 
 
 def _terminate_process_tree(process: subprocess.Popen) -> None:
@@ -298,8 +300,13 @@ def run_once(
     isolation: str = DEFAULT_ISOLATION,
     claude_bin: str = CLAUDE_BIN,
     repo_root: Path = Path("."),
+    cancel_event: threading.Event | None = None,
 ) -> ProcessOutcome:
-    """Claude Code 프로세스 하나를 시작해 timeout까지 관리하고 결과를 기록한다."""
+    """Claude Code 프로세스 하나를 시작해 timeout까지 관리하고 결과를 기록한다.
+
+    `cancel_event`가 주어지고 실행 중 set되면, timeout을 기다리지 않고 즉시
+    종료해 status="cancelled"로 기록한다 — 웹의 "실험 중지" 버튼이 이걸 쓴다.
+    """
 
     proxy = next((i for i in injections if i.type == "proxy"), None)
     if proxy is not None:
@@ -315,6 +322,7 @@ def run_once(
                 isolation=isolation,
                 claude_bin=claude_bin,
                 repo_root=repo_root,
+                cancel_event=cancel_event,
             )
 
     command = build_command(
@@ -351,13 +359,24 @@ def run_once(
             except OSError as exc:
                 raise WorkerError(f"claude 프로세스를 실행할 수 없다: {exc}") from exc
 
-            try:
-                returncode = process.wait(timeout=timeout_seconds)
-                status = "succeeded" if returncode == 0 else "failed"
-            except subprocess.TimeoutExpired:
-                _terminate_process_tree(process)
-                status = "timeout"
-                returncode = process.returncode
+            deadline = time.monotonic() + timeout_seconds
+            while True:
+                try:
+                    returncode = process.wait(timeout=CANCEL_POLL_SECONDS)
+                    status = "succeeded" if returncode == 0 else "failed"
+                    break
+                except subprocess.TimeoutExpired:
+                    pass
+                if cancel_event is not None and cancel_event.is_set():
+                    _terminate_process_tree(process)
+                    status = "cancelled"
+                    returncode = process.returncode
+                    break
+                if time.monotonic() >= deadline:
+                    _terminate_process_tree(process)
+                    status = "timeout"
+                    returncode = process.returncode
+                    break
     finally:
         finished_at = datetime.now(timezone.utc)
         duration_seconds = time.monotonic() - start_monotonic

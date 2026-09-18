@@ -540,7 +540,9 @@ def _run_status(db_path: Path) -> int:
     return 0
 
 
-def _process_claimed_job(job, conditions_path: Path, *, db_path: Path) -> str:
+def _process_claimed_job(
+    job, conditions_path: Path, *, db_path: Path, cancel_event=None
+) -> str:
     """선점된 작업 하나를 preflight 재확인부터 결과 저장까지 처리한다.
 
     반환값은 job_store/worker/results가 인식하는 상태 문자열이다:
@@ -608,6 +610,7 @@ def _process_claimed_job(job, conditions_path: Path, *, db_path: Path) -> str:
             env=env,
             isolation=job.isolation,
             repo_root=run_root,
+            cancel_event=cancel_event,
         )
     except WorkerError as exc:
         print(f"오류: {exc}", file=sys.stderr)

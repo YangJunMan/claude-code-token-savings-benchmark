@@ -13,6 +13,7 @@ KNOWN_ENDPOINTS = {
     "/api/approve",
     "/api/enqueue",
     "/api/status",
+    "/api/stop",
 }
 
 
