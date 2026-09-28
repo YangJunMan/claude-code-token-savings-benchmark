@@ -54,6 +54,30 @@ def interrupted_reason(stdout_path: str | None) -> str | None:
     return str(result_event.get("result") or "원본 로그에 사유 없음")[:300]
 
 
+_USAGE_LIMIT_KEYWORDS = (
+    "usage limit",
+    "session limit",
+    "rate limit",
+    "limit reached",
+    "quota exceeded",
+)
+
+
+def is_usage_limit_error(reason: str | None) -> bool:
+    """중단 사유가 구독 사용 한도로 보이면 참을 돌려준다.
+
+    2026-09-15 실제 rtk 실행이 "You've hit your session limit · resets
+    2:50am"으로 끊긴 사례(test_treatments.py)가 있어 "session limit"은
+    확인된 문구다. 나머지는 비슷한 다른 한도 메시지를 짐작으로 넓힌
+    것이라 다른 이유로 중단된 실행을 오탐할 수 있고, 반대로 놓칠 수도 있다.
+    """
+
+    if not reason:
+        return False
+    lowered = reason.lower()
+    return any(keyword in lowered for keyword in _USAGE_LIMIT_KEYWORDS)
+
+
 def _parse_stream_json_lines(stdout_path: str | None) -> tuple[list[dict], str | None]:
     if not stdout_path:
         return [], _NO_STDOUT

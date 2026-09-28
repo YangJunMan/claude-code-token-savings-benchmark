@@ -396,3 +396,126 @@ def finish_job(
             raise
     finally:
         conn.close()
+
+
+def delete_job(run_id: str, *, db_path: Path = DEFAULT_DB_PATH) -> None:
+    """작업 하나를 목록에서 지운다.
+
+    웹의 "삭제" 버튼이 쓴다. `running`은 대상이 아니다 — 지우기 전에 먼저
+    중지("실험 중지" 버튼)해야 한다. 게시된 CSV(`data/*.csv`)는 별개의
+    append-only 기록이라 여기서 지운다고 지난 결과가 사라지지 않는다.
+    """
+
+    conn = _connect(db_path)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            cursor = conn.execute(
+                "DELETE FROM jobs WHERE run_id = ? AND status != 'running'",
+                (run_id,),
+            )
+            if cursor.rowcount == 0:
+                raise JobStoreError(f"삭제할 수 없는 작업이다(실행 중이거나 없음): {run_id}")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+    finally:
+        conn.close()
+
+
+def retry_job(run_id: str, *, db_path: Path = DEFAULT_DB_PATH) -> JobRecord:
+    """끝난 작업 하나를 다시 큐에 넣어 처음부터 재시도하게 한다.
+
+    웹의 "재시도" 버튼이 쓴다. 'succeeded'는 이미 측정된 결과라 대상이 아니고,
+    'queued'/'running'은 이미 진행 중이라 대상이 아니다 — `blocked`/`failed`/
+    `cancelled`처럼 끝난 작업만 되돌린다.
+    """
+
+    conn = _connect(db_path)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            cursor = conn.execute(
+                "UPDATE jobs SET status = 'queued', started_at = NULL, "
+                "finished_at = NULL WHERE run_id = ? "
+                "AND status NOT IN ('queued', 'running', 'succeeded')",
+                (run_id,),
+            )
+            if cursor.rowcount == 0:
+                raise JobStoreError(f"재시도할 수 없는 상태의 작업이다: {run_id}")
+            row = conn.execute(
+                "SELECT * FROM jobs WHERE run_id = ?", (run_id,)
+            ).fetchone()
+            conn.commit()
+            return _row_to_record(row)
+        except Exception:
+            conn.rollback()
+            raise
+    finally:
+        conn.close()
+
+
+def requeue_job(run_id: str, *, db_path: Path = DEFAULT_DB_PATH) -> JobRecord:
+    """'running' 작업 하나를 'queued'로 되돌려 처음부터 다시 시도하게 한다.
+
+    구독 사용 한도처럼 이 실행 자체의 결함이 아닌 이유로 중간에 끊겼을 때
+    쓴다 — `finish_job`과 달리 결과를 종료 상태로 기록하지 않는다.
+    """
+
+    conn = _connect(db_path)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            cursor = conn.execute(
+                "UPDATE jobs SET status = 'queued', started_at = NULL "
+                "WHERE run_id = ? AND status = 'running'",
+                (run_id,),
+            )
+            if cursor.rowcount == 0:
+                raise JobStoreError(
+                    f"'running' 상태가 아닌 작업은 재시도로 되돌릴 수 없다: {run_id}"
+                )
+            row = conn.execute(
+                "SELECT * FROM jobs WHERE run_id = ?", (run_id,)
+            ).fetchone()
+            conn.commit()
+            return _row_to_record(row)
+        except Exception:
+            conn.rollback()
+            raise
+    finally:
+        conn.close()
+
+
+def requeue_orphaned_running(*, db_path: Path = DEFAULT_DB_PATH) -> list[JobRecord]:
+    """`worker_lock` 획득 직후에 불러, 이전 worker가 비정상 종료해 'running'에
+    멈춰 있는 작업을 'queued'로 되돌려 처음부터 다시 시도하게 한다.
+
+    잠금을 쥔 시점에는 그 상태로 남은 작업을 실제로 처리 중인 프로세스가
+    없다고 확신할 수 있다 — worker_lock 자체가 동시 실행을 막기 때문이다.
+    끊긴 채로 두면 웹이 오래된 'running' 행을 실행 중인 작업으로 착각해
+    진행 상황/중지 버튼이 엉뚱한 job을 가리키게 된다. 측정값(succeeded/
+    failed)이 아니라 인프라 문제(프로세스가 죽음)이므로 실패로 기록하지
+    않고 큐 맨 끝이 아니라 원래 자리(sequence)에서 그대로 재시도한다.
+    """
+
+    conn = _connect(db_path)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            rows = conn.execute(
+                "SELECT * FROM jobs WHERE status = 'running'"
+            ).fetchall()
+            if rows:
+                conn.execute(
+                    "UPDATE jobs SET status = 'queued', started_at = NULL "
+                    "WHERE status = 'running'"
+                )
+            conn.commit()
+            return [_row_to_record(row) for row in rows]
+        except Exception:
+            conn.rollback()
+            raise
+    finally:
+        conn.close()

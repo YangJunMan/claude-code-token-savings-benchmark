@@ -63,7 +63,8 @@
       "injections": [
         {
           "type": "plugin_dir",
-          "path": "~/.claude/plugins/cache/caveman/caveman/*/plugins/caveman"
+          "path": "~/.claude/plugins/cache/caveman/caveman/*/plugins/caveman",
+          "fingerprint_path": "skills/caveman/SKILL.md"
         },
         {
           "type": "prompt_overlay",

@@ -69,6 +69,53 @@ def test_repository_file_injections_cannot_escape_repository(tmp_path, path_valu
         load_conditions(path)
 
 
+def test_plugin_dir_fingerprint_path_round_trips(tmp_path):
+    path = _write(
+        tmp_path,
+        {
+            "conditions": [
+                {
+                    "id": "plugin-condition",
+                    "repository_url": "https://github.com/example/example",
+                    "injections": [
+                        {
+                            "type": "plugin_dir",
+                            "path": "~/.claude/plugins/example",
+                            "fingerprint_path": "skills/example/SKILL.md",
+                        }
+                    ],
+                }
+            ]
+        },
+    )
+    runs = expand_runs(load_conditions(path))
+    injection = runs[0].injections[0]
+    assert injection.fingerprint_path == "skills/example/SKILL.md"
+
+
+def test_plugin_dir_fingerprint_path_cannot_escape_plugin_dir(tmp_path):
+    path = _write(
+        tmp_path,
+        {
+            "conditions": [
+                {
+                    "id": "plugin-condition",
+                    "repository_url": "https://github.com/example/example",
+                    "injections": [
+                        {
+                            "type": "plugin_dir",
+                            "path": "~/.claude/plugins/example",
+                            "fingerprint_path": "../../etc/passwd",
+                        }
+                    ],
+                }
+            ]
+        },
+    )
+    with pytest.raises(ConditionError, match="상대경로"):
+        load_conditions(path)
+
+
 def test_generic_arg_injection_is_rejected(tmp_path):
     path = _write(
         tmp_path,

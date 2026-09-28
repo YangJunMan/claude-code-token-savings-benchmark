@@ -29,9 +29,11 @@ from token_bench.job_store import (
     DEFAULT_DB_PATH,
     JobStoreError,
     claim_next_queued,
+    delete_job,
     enqueue as enqueue_jobs,
     get_job,
     list_jobs,
+    retry_job,
 )
 from token_bench.log_tail import tail as tail_log
 from token_bench.preflight import check as preflight_check, unavailable_reasons
@@ -77,7 +79,8 @@ class AutoWorker:
             return True
 
     def _loop(self) -> None:
-        from token_bench.__main__ import _process_claimed_job  # 순환 import 회피
+        # 순환 import 회피(token_bench.__main__이 이 모듈을 import한다)
+        from token_bench.__main__ import _process_claimed_job, RATE_LIMIT_BACKOFF_SECONDS
 
         try:
             with worker_lock(self._db_path):
@@ -90,7 +93,7 @@ class AutoWorker:
                         self._current_run_id = job.run_id
                         self._cancel_event.clear()
                     try:
-                        _process_claimed_job(
+                        status = _process_claimed_job(
                             job,
                             self._conditions_path,
                             db_path=self._db_path,
@@ -99,6 +102,8 @@ class AutoWorker:
                     finally:
                         with self._lock:
                             self._current_run_id = None
+                    if status == "rate-limited":
+                        time.sleep(RATE_LIMIT_BACKOFF_SECONDS)
         except WorkerLockError as exc:
             print(f"자동 실행 worker를 시작할 수 없다: {exc}", file=sys.stderr)
 
@@ -234,6 +239,32 @@ def _handle_enqueue(body: dict, *, db_path: Path) -> dict:
     return {"jobs": [j.to_dict() for j in jobs]}
 
 
+def _handle_retry(body: dict, *, db_path: Path) -> dict:
+    run_id = body.get("run_id")
+    if not run_id:
+        raise ApiError(400, "run_id가 필요하다.")
+
+    try:
+        job = retry_job(run_id, db_path=db_path)
+    except JobStoreError as exc:
+        raise ApiError(400, str(exc)) from exc
+
+    return {"job": job.to_dict()}
+
+
+def _handle_delete(body: dict, *, db_path: Path) -> dict:
+    run_id = body.get("run_id")
+    if not run_id:
+        raise ApiError(400, "run_id가 필요하다.")
+
+    try:
+        delete_job(run_id, db_path=db_path)
+    except JobStoreError as exc:
+        raise ApiError(400, str(exc)) from exc
+
+    return {"deleted": run_id}
+
+
 def _handle_add_condition(body: dict, *, conditions_path: Path) -> dict:
     """조건 하나를 추가한다. CLI `add-condition` 마법사와 같은 검증기를 쓴다.
 
@@ -364,6 +395,10 @@ def make_handler(
                     )
                 elif self.path == "/api/stop":
                     self._send_json(200, {"stopped": auto_worker.stop_current()})
+                elif self.path == "/api/retry":
+                    self._send_json(200, _handle_retry(body, db_path=db_path))
+                elif self.path == "/api/delete":
+                    self._send_json(200, _handle_delete(body, db_path=db_path))
                 else:
                     self._send_json(404, {"error": "not found"})
             except ApiError as exc:

@@ -25,6 +25,14 @@ def _sha256_tree(root: Path) -> str:
     return digest.hexdigest()
 
 
+def _sha256_path(path: Path) -> str:
+    """디렉터리면 트리 전체를, 파일이면 그 파일 하나만 지문 찍는다."""
+
+    if path.is_dir():
+        return _sha256_tree(path)
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
 def fingerprint_tools(run: RunSpec, *, repo_root: Path = Path(".")) -> tuple[dict, ...]:
     """조건이 사용하는 binary와 plugin directory를 결정적으로 식별한다."""
 
@@ -70,11 +78,24 @@ def fingerprint_tools(run: RunSpec, *, repo_root: Path = Path(".")) -> tuple[dic
             plugin_dir = resolve_plugin_dir(injection.path, repo_root=repo_root)
         except WorkerError as exc:
             raise ToolingError(str(exc)) from exc
+
+        # 기본은 플러그인 디렉터리 전체를 지문 찍는다. 그런데 플러그인 안에 이
+        # 조건과 무관한 스킬·스크립트가 같이 들어 있으면, 그쪽이 바뀔 때마다
+        # (마켓플레이스 캐시 재동기화 등) 애먼 fingerprint 불일치로 막힌다
+        # (caveman-full에서 실측됨). `fingerprint_path`가 있으면 그 파일/
+        # 하위디렉터리만 지문 대상으로 좁힌다.
+        fingerprint_target = plugin_dir
+        if injection.fingerprint_path:
+            fingerprint_target = plugin_dir / injection.fingerprint_path
+            if not fingerprint_target.exists():
+                raise ToolingError(
+                    f"plugin_dir의 fingerprint_path를 찾을 수 없다: {fingerprint_target}"
+                )
         fingerprints.append(
             {
                 "kind": "plugin_dir",
                 "path": str(plugin_dir.resolve()),
-                "sha256": _sha256_tree(plugin_dir),
+                "sha256": _sha256_path(fingerprint_target),
             }
         )
 

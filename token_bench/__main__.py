@@ -29,6 +29,7 @@ from token_bench.job_store import (
     finish_job,
     get_job,
     list_jobs,
+    requeue_job,
 )
 from token_bench.preflight import check as preflight_check, split_by_availability
 from token_bench.collect import (
@@ -38,7 +39,7 @@ from token_bench.collect import (
     collect as collect_activity,
 )
 from token_bench.publish import DEFAULT_OUTPUT_PATH as DEFAULT_PUBLISH_OUTPUT_PATH, publish as publish_results
-from token_bench.results import interrupted_reason, ResultsError, collect as collect_result, load as load_result, save as save_result
+from token_bench.results import interrupted_reason, is_usage_limit_error, ResultsError, collect as collect_result, load as load_result, save as save_result
 from token_bench.webapi import DEFAULT_HOST, DEFAULT_PORT, serve as serve_webapi
 from token_bench.worker import WorkerError, WorkerLockError, build_env, run_once, worker_lock
 from token_bench.workspace import (
@@ -52,6 +53,10 @@ from token_bench.workspace import (
 )
 
 DEFAULT_CONDITIONS_PATH = Path("benchmark/conditions.json")
+# 구독 사용 한도에 걸린 job을 재시도하기 전에 쉬는 시간. 정확한 한도 초기화
+# 시각을 CLI 출력에서 알 수 없어(is_usage_limit_error 참고), 고정 대기 후
+# 다시 시도하는 단순한 전략을 쓴다.
+RATE_LIMIT_BACKOFF_SECONDS = 1800
 
 
 def _add_selection_args(parser: argparse.ArgumentParser) -> None:
@@ -548,6 +553,9 @@ def _process_claimed_job(
     반환값은 job_store/worker/results가 인식하는 상태 문자열이다:
     'succeeded'·'failed'는 측정된 결과(계속 진행 가능), 'blocked'·
     'config-error'·'worker-error'는 인프라·승인 문제(순차 실행을 멈춰야 함)다.
+    'rate-limited'는 구독 사용 한도로 보여 이 job을 다시 큐에 넣었다는
+    뜻이다 — 호출자가 잠시 쉬었다가 계속 진행해야 한다(순차 실행을 완전히
+    멈추는 대신 나중에 이 job부터 다시 시도한다).
     """
 
     snapshot_path = Path(job.snapshot_path)
@@ -621,6 +629,13 @@ def _process_claimed_job(
     # 빈 행으로 올라간다.
     status = outcome.status
     interrupted = interrupted_reason(outcome.stdout_path)
+    if status == "failed" and interrupted and is_usage_limit_error(interrupted):
+        print(
+            f"경고: 구독 사용 한도로 보인다 — 다시 큐에 넣고 잠시 후 재시도한다: {interrupted}",
+            file=sys.stderr,
+        )
+        requeue_job(job.run_id, db_path=db_path)
+        return "rate-limited"
     if status == "failed" and interrupted:
         print(
             f"오류: 실행이 중간에 끊겼다 — 측정값으로 쓰지 않는다: {interrupted}",
@@ -705,6 +720,13 @@ def _run_work_loop(
                     continue
 
                 status = _process_claimed_job(job, conditions_path, db_path=db_path)
+                if status == "rate-limited":
+                    print(
+                        f"{RATE_LIMIT_BACKOFF_SECONDS}초 쉬었다가 다시 시도한다.",
+                        file=sys.stderr,
+                    )
+                    time.sleep(RATE_LIMIT_BACKOFF_SECONDS)
+                    continue
                 if status not in ("succeeded", "failed"):
                     print(
                         f"인프라·승인 문제로 남은 작업 처리를 멈춘다 "

@@ -43,7 +43,7 @@ _CONDITION_KEYS = frozenset(
 _INJECTION_KEYS_BY_TYPE = {
     "prompt_overlay": frozenset({"type", "path"}),
     "config_ref": frozenset({"type", "path"}),
-    "plugin_dir": frozenset({"type", "path"}),
+    "plugin_dir": frozenset({"type", "path", "fingerprint_path"}),
     "env": frozenset({"type", "name", "value"}),
     "proxy": frozenset({"type", "binary", "args", "ready_path"}),
 }
@@ -62,6 +62,7 @@ class Injection:
     binary: str | None = None
     args: tuple[str, ...] | None = None
     ready_path: str | None = None
+    fingerprint_path: str | None = None
 
 
 @dataclass(frozen=True)
@@ -164,6 +165,22 @@ def _parse_injection(raw: Any, *, condition_id: str, index: int) -> Injection:
                     f"조건 '{condition_id}'의 injections[{index}] path는 "
                     "저장소 내부 상대경로여야 한다."
                 )
+        if inj_type == "plugin_dir":
+            fingerprint_path = raw.get("fingerprint_path")
+            if fingerprint_path is not None:
+                if not isinstance(fingerprint_path, str) or not fingerprint_path:
+                    raise ConditionError(
+                        f"조건 '{condition_id}'의 injections[{index}]의 "
+                        "'fingerprint_path'는 비어 있지 않은 문자열이어야 한다."
+                    )
+                posix = PurePosixPath(fingerprint_path)
+                windows = PureWindowsPath(fingerprint_path)
+                if posix.is_absolute() or windows.is_absolute() or ".." in posix.parts:
+                    raise ConditionError(
+                        f"조건 '{condition_id}'의 injections[{index}] "
+                        "fingerprint_path는 plugin_dir 내부 상대경로여야 한다."
+                    )
+            return Injection(type=inj_type, path=path, fingerprint_path=fingerprint_path)
         return Injection(type=inj_type, path=path)
 
     # env

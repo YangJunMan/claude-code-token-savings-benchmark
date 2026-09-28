@@ -74,7 +74,7 @@ python3.11 -m token_bench add-condition
 |---|---|---|
 | `prompt_overlay` | `path` | 그 파일 내용을 과제 프롬프트 뒤에 덧붙입니다. |
 | `config_ref` | `path` | `claude --settings <path>`로 설정 파일(hook 등)을 넘깁니다. |
-| `plugin_dir` | `path` | `claude --plugin-dir <path>`로 플러그인을 그 세션에만 로드합니다. `~`와 `*` 한 단계를 허용합니다. |
+| `plugin_dir` | `path`, `fingerprint_path`(선택) | `claude --plugin-dir <path>`로 플러그인을 그 세션에만 로드합니다. `~`와 `*` 한 단계를 허용합니다. 승인 이후 내용이 바뀌면 실행을 막는데(아래), 플러그인 안에 이 조건과 무관한 파일이 같이 있으면 그쪽 변경에도 오탐이 날 수 있습니다 — `fingerprint_path`로 실제 처치에 쓰이는 파일/하위디렉터리만 지문 대상으로 좁힐 수 있습니다(`plugin_dir` 기준 상대경로). |
 | `env` | `name`, `value` | 자식 프로세스 환경변수를 덧붙입니다. |
 | `proxy` | `binary`, `args`, `ready_path` | 실행 동안만 proxy를 띄우고 `ANTHROPIC_BASE_URL`을 그쪽으로 돌립니다. 포트(`{port}`)와 로그 경로(`{log_path}`)는 runner가 채웁니다. |
 

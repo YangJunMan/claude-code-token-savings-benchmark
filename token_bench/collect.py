@@ -243,10 +243,15 @@ def _comparison_rows_for_date(runs: list[dict]) -> list[list]:
 
 
 def _rebuild_comparison(summary_path: Path, comparison_path: Path) -> None:
-    """`(run_date, prompt_id)` 단위로 묶어 비교한다.
+    """`(batch_id, prompt_id)` 단위로 묶어 비교한다.
 
     prompt_id별로 묶지 않으면 large preset BASE가 small preset HEADROOM과
     비교되는 식의 잘못된 delta가 나온다 — 프롬프트 크기가 다르면 토큰 수
+
+    날짜가 아니라 batch_id(run_id의 첫 `-` 앞부분, 한 번의 estimate/enqueue가
+    공유하는 값)로 묶는다 — 웹의 "재시도" 버튼으로 다시 돌린 job은 나머지
+    조건과 다른 날짜에 끝날 수 있는데, 날짜로 묶으면 그 조건만 base 없는
+    그룹에 혼자 남아 비교표에서 통째로 빠졌다(2026-09-21 rtk 재시도 사례).
     자체가 다르므로 같은 preset끼리만 비교해야 한다.
     """
     if not summary_path.is_file():
@@ -261,18 +266,22 @@ def _rebuild_comparison(summary_path: Path, comparison_path: Path) -> None:
         quality = row.get("quality_score")
         if quality in (None, ""):
             continue  # 평가 안 돌린 실행은 quality delta에 넣을 수 없다.
-        key = (row["run_date"], row.get("prompt_id", ""))
+        batch_id = row["run_id"].split("-", 1)[0]
+        key = (batch_id, row.get("prompt_id", ""))
         by_group.setdefault(key, []).append({
             "condition": row["condition"],
             "processed": float(row["processed_tokens"]),
             "cost": float(row["cost_usd"]),
             "tax": float(row["context_tax_tokens"]),
+            "run_date": row["run_date"],
             "quality": float(quality),
         })
 
     out_rows = []
-    for run_date, prompt_id in sorted(by_group):
-        for row in _comparison_rows_for_date(by_group[(run_date, prompt_id)]):
+    for batch_id, prompt_id in sorted(by_group):
+        group = by_group[(batch_id, prompt_id)]
+        run_date = min(r["run_date"] for r in group)
+        for row in _comparison_rows_for_date(group):
             out_rows.append([run_date, prompt_id, *row])
 
     comparison_path.parent.mkdir(parents=True, exist_ok=True)
