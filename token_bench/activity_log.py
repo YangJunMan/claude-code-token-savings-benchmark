@@ -86,7 +86,7 @@ def _assistant_messages(path):
     stops = {}
     models = {}
     order = []
-    for line in Path(path).read_text().splitlines():
+    for line in Path(path).read_text(encoding="utf-8", errors="replace").splitlines():
         try:
             row = json.loads(line)
         except json.JSONDecodeError:

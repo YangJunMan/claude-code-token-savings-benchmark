@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from token_bench.job_store import JobRecord
-from token_bench.results import ResultsError, collect, load, save
+from token_bench.results import interrupted_reason, ResultsError, collect, load, save
 from token_bench.worker import ProcessOutcome
 
 SUBSCRIPTION_AUTH = {
@@ -194,3 +194,24 @@ def test_failed_run_preserves_raw_output_paths(tmp_path):
     assert result.returncode == 2
     assert result.stdout_path == stdout_path
     assert result.stderr_path == str(tmp_path / "stderr.log")
+
+
+def test_non_utf8_bytes_in_the_log_do_not_crash_the_worker(tmp_path):
+    """Windows에서 claude가 로컬 코드페이지로 쓴 바이트가 섞이면 로그 전체를
+    읽지 못해 worker가 UnicodeDecodeError로 죽었다(2026-09-28 CI). 진행을 막지
+    않고 해독 불가 바이트만 대체한다."""
+
+    log = tmp_path / "stdout.jsonl"
+    payload = json.dumps({
+        "type": "result",
+        "subtype": "error_during_execution",
+        "is_error": True,
+        "result": "5-hour limit reached",
+    })
+    # 0xb7은 utf-8에서 단독으로 올 수 없는 바이트다(cp1252의 중점).
+    log.write_bytes(b'{"type":"system","note":"\xb7"}\n' + payload.encode("utf-8") + b"\n")
+
+    reason = interrupted_reason(log)
+
+    assert reason is not None
+    assert "5-hour limit reached" in reason

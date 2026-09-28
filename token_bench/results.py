@@ -86,7 +86,7 @@ def _parse_stream_json_lines(stdout_path: str | None) -> tuple[list[dict], str |
         return [], _NO_STDOUT
 
     events: list[dict] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
         line = line.strip()
         if not line:
             continue

@@ -111,7 +111,7 @@ def _final_result_event(stdout_path: str | None) -> dict:
     if not stdout_path or not Path(stdout_path).is_file():
         return {}
     events = []
-    for line in Path(stdout_path).read_text(encoding="utf-8").splitlines():
+    for line in Path(stdout_path).read_text(encoding="utf-8", errors="replace").splitlines():
         line = line.strip()
         if not line:
             continue
