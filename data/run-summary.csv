@@ -24,3 +24,4 @@ run_date,run_id,condition,prompt_id,cost_usd,quality_score,critical_pass,turns,m
 2026-09-21,bcf56e7cb29d-headroom__r1,HEADROOM,large,2.8231534,100,pass,53,1,,6021292,1495260,8220,4517812,0,claude-sonnet-5,1028.6,succeeded,0,65,0,1,0,6050345,4517812
 2026-09-21,bcf56e7cb29d-caveman-full__r1,CAVEMAN-FULL,large,2.5621023999999997,100,pass,55,1,,5717794,1709478,8966,3999350,0,claude-sonnet-5,947.3,succeeded,0,68,22046,3,2295,5749787,3999350
 2026-09-28,636dce9dae1b-base__r1,BASE,small,2.2241448000000004,100,pass,63,1,,5473191,1824164,11622,3637405,0,claude-sonnet-5,724.7,succeeded,0,73,18639,,0,5503010,3637405
+2026-09-28,45d2fb9c09a0-be-brief__r1,BE_BRIEF,small,1.7087481999999994,100,pass,41,1,,3507183,1178760,5950,2322473,0,claude-sonnet-5,604.7,succeeded,0,54,23927,,0,3536953,2322473
