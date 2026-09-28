@@ -37,11 +37,13 @@ from token_bench.collect import (
     DEFAULT_COMPARISON_PATH,
     DEFAULT_SUMMARY_PATH,
     collect as collect_activity,
+    next_condition,
+    next_preset,
 )
 from token_bench.publish import DEFAULT_OUTPUT_PATH as DEFAULT_PUBLISH_OUTPUT_PATH, publish as publish_results
 from token_bench.results import interrupted_reason, is_usage_limit_error, ResultsError, collect as collect_result, load as load_result, save as save_result
 from token_bench.webapi import DEFAULT_HOST, DEFAULT_PORT, serve as serve_webapi
-from token_bench.worker import WorkerError, WorkerLockError, build_env, run_once, worker_lock
+from token_bench.worker import ISOLATION_MODES, WorkerError, WorkerLockError, build_env, run_once, worker_lock
 from token_bench.workspace import (
     DEFAULT_RUNS_ROOT,
     DEFAULT_TASK_PROMPT_PATH,
@@ -191,6 +193,13 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="미리 등록된 프롬프트 프리셋. --prompt와 동시 사용 불가.",
     )
+    estimate_parser.add_argument(
+        "--isolation",
+        choices=sorted(ISOLATION_MODES),
+        default=None,
+        help="격리 모드를 직접 지정한다. 지정하지 않으면 배치 내용에서 유도한다 — "
+        "조건 하나씩 따로 돌리는 무인 실행은 시리즈 전체에 같은 값을 지정해야 한다.",
+    )
     _add_selection_args(estimate_parser)
 
     approve_parser = subparsers.add_parser(
@@ -214,6 +223,23 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     enqueue_parser.add_argument(
         "--db", type=Path, default=DEFAULT_DB_PATH, help=f"작업 상태 DB 경로 (기본값: {DEFAULT_DB_PATH})"
+    )
+
+    next_target_parser = subparsers.add_parser(
+        "next-target",
+        help="다음에 돌려야 할 프리셋과 조건을 JSON으로 출력한다(무인 스케줄러용).",
+    )
+    next_target_parser.add_argument(
+        "--summary",
+        type=Path,
+        default=DEFAULT_SUMMARY_PATH,
+        help=f"실행 단위 CSV 경로 (기본값: {DEFAULT_SUMMARY_PATH})",
+    )
+    next_target_parser.add_argument(
+        "--conditions",
+        type=Path,
+        default=DEFAULT_CONDITIONS_PATH,
+        help=f"조건 선언 JSON 경로 (기본값: {DEFAULT_CONDITIONS_PATH})",
     )
 
     status_parser = subparsers.add_parser("status", help="등록된 작업 목록을 조회한다.")
@@ -447,6 +473,7 @@ def _run_estimate(
     include: list[str] | None = None,
     exclude: list[str] | None = None,
     skip_unavailable: bool = False,
+    isolation: str | None = None,
 ) -> int:
     try:
         runs = inspect_conditions(conditions_path, include=include, exclude=exclude)
@@ -483,7 +510,11 @@ def _run_estimate(
     batch_id = workspaces[0].run_id.split("-", 1)[0]
     # hook·plugin을 켜는 조건이 하나라도 있으면 배치 전체가 같은 격리 모드로
     # 돈다. 조건마다 격리가 다르면 처치 말고도 달라지는 것이 생긴다.
-    isolation = (
+    #
+    # 배치에 조건 하나만 담으면 이 유도 결과가 조건마다 갈린다(base는 safe-mode,
+    # rtk는 project-settings). 그래서 조건을 하나씩 돌리는 무인 실행은
+    # `--isolation`으로 시리즈 전체에 같은 값을 못 박는다.
+    isolation = isolation or (
         "project-settings"
         if any(needs_customizations(run.injections) for run in runs)
         else "safe-mode"
@@ -857,6 +888,7 @@ def main(argv: list[str] | None = None) -> int:
             include=_split_csv_ids(args.only),
             exclude=_split_csv_ids(args.exclude),
             skip_unavailable=args.skip_unavailable,
+            isolation=args.isolation,
         )
     if args.command == "approve":
         return _run_approve(args.plan, confirmed_digest=args.confirm)
@@ -875,6 +907,14 @@ def main(argv: list[str] | None = None) -> int:
         )
     if args.command == "result":
         return _run_result(args.run_id, db_path=args.db)
+    if args.command == "next-target":
+        preset = next_preset(args.summary, conditions_path=args.conditions)
+        condition = next_condition(
+            args.summary, preset=preset, conditions_path=args.conditions
+        )
+        print(json.dumps({"preset": preset, "condition_id": condition}))
+        return 0
+
     if args.command == "publish":
         return _run_publish(db_path=args.db, output_path=args.out)
     if args.command == "collect":

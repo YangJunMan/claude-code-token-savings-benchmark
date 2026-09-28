@@ -39,6 +39,7 @@ from token_bench.diagnostics import update_manifest
 from token_bench.job_store import JobRecord, list_jobs
 from token_bench.publish import _read_published, attempt_run_id
 from token_bench.results import ResultsError, load as load_result
+from token_bench.conditions import load_conditions
 from token_bench.workspace import PROMPT_PRESETS
 
 DEFAULT_DIAGNOSTICS_PATH = Path("data/run-diagnostics.json")
@@ -382,3 +383,75 @@ def _append(path: Path, columns: tuple, rows: list[list]) -> None:
         if write_header:
             writer.writerow(columns)
         writer.writerows(rows)
+
+
+# 어떤 프리셋으로 얼마나 모을지. `small`이 조건마다 이 횟수에 닿으면 `large`로
+# 넘어간다 — 가벼운 과제에서 조건별 분산을 먼저 확정하고 무거운 과제로 옮기려는
+# 것이다(사용자 결정). 횟수는 조건별 누적이며, 한 tick에 조건 하나만 돌린다.
+PRESET_SEQUENCE = ("small", "large")
+RUNS_PER_PRESET = 30
+
+
+def successful_runs_by_condition(
+    summary_path: Path, *, prompt_id: str
+) -> dict[str, int]:
+    """한 프리셋에서 조건별로 성공한 실행이 몇 건 쌓였는지 센다.
+
+    `succeeded`만 센다 — 중간에 끊긴 실행은 그 조건의 표본이 아니다.
+    """
+
+    counts: dict[str, int] = {}
+    if not summary_path.is_file():
+        return counts
+    with summary_path.open("r", encoding="utf-8", newline="") as f:
+        for row in csv.DictReader(f):
+            if row.get("prompt_id") != prompt_id:
+                continue
+            if row.get("terminal_reason") != "succeeded":
+                continue
+            condition = row.get("condition") or ""
+            counts[condition] = counts.get(condition, 0) + 1
+    return counts
+
+
+def next_condition(
+    summary_path: Path,
+    *,
+    preset: str,
+    conditions_path: Path = Path("benchmark/conditions.json"),
+) -> str:
+    """이 프리셋에서 표본이 가장 적은 조건의 id를 고른다.
+
+    한 tick에 조건 하나만 돌리므로(사용자 결정: 간격은 세트가 아니라 실험 단위다)
+    매번 가장 뒤처진 조건을 집어 균등하게 쌓는다. 실행이 실패해 한 조건만 표본이
+    모자라도 다음 차례에 그 조건이 다시 선택되므로 따로 보정할 필요가 없다.
+    동수면 conditions.json의 선언 순서를 따른다.
+    """
+
+    declared = [condition.id for condition in load_conditions(conditions_path)]
+    counts = successful_runs_by_condition(summary_path, prompt_id=preset)
+    return min(declared, key=lambda cid: counts.get(_legacy_condition(cid), 0))
+
+
+def next_preset(
+    summary_path: Path = DEFAULT_SUMMARY_PATH,
+    *,
+    conditions_path: Path = Path("benchmark/conditions.json"),
+    runs_per_preset: int = RUNS_PER_PRESET,
+) -> str:
+    """지금 돌려야 할 프리셋을 정한다.
+
+    선언된 모든 조건이 그 프리셋에서 `runs_per_preset`건을 채우면 다음 프리셋으로
+    넘어간다. 조건 하나라도 모자라면 넘어가지 않는다 — 조건 간 비교가 목적이므로
+    표본이 고르지 않은 채로 과제를 바꾸면 그 프리셋의 비교가 미완성으로 남는다.
+    마지막 프리셋까지 채웠으면 그 프리셋을 계속 쓴다.
+    """
+
+    conditions = [
+        _legacy_condition(condition.id) for condition in load_conditions(conditions_path)
+    ]
+    for preset in PRESET_SEQUENCE:
+        counts = successful_runs_by_condition(summary_path, prompt_id=preset)
+        if any(counts.get(condition, 0) < runs_per_preset for condition in conditions):
+            return preset
+    return PRESET_SEQUENCE[-1]
