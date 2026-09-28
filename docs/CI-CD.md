@@ -84,6 +84,17 @@
   넣는다(스테이징된 변경을 들고 브랜치를 바꾸면 충돌한다). `data` 브랜치가 없으면
   `--orphan`으로 만든다.
 
+### 비교 기준선
+
+한 tick에 조건 하나만 돌리므로 batch에도, 같은 날짜에도 BASE가 없는 경우가 흔하다
+(BASE는 5 tick마다 = 약 7.5시간마다). 그래서 `comparison.csv`의 기준선은 batch나
+날짜가 아니라 시간축에서 끌어온다: 처치 실행의 날짜까지 쌓인 BASE 중 최근
+`collect.BASELINE_WINDOW`(10)건의 평균. `prompt_id`로는 계속 나눈다 — 프롬프트
+크기가 다르면 토큰 수 자체가 달라 비교할 수 없다.
+
+대가: 기준선이 한 batch가 아니라 여러 날의 BASE 평균이므로 BASE의 일간 변동이
+delta에 직접 반영된다. `noise_processed_pct`·`noise_cost_pct`가 그 변동폭이다.
+
 ### `self-heal.yml` — 수정안 PR
 - `workflow_run`으로 `bench` 실패에 반응. `workflow_dispatch`로 수동 실행 가능.
 - 실패 로그(`gh run view --log-failed`)를 컨텍스트로 주고, 프롬프트는
