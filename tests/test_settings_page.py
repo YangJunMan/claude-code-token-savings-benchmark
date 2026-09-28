@@ -14,6 +14,8 @@ KNOWN_ENDPOINTS = {
     "/api/enqueue",
     "/api/status",
     "/api/stop",
+    "/api/retry",
+    "/api/delete",
 }
 
 

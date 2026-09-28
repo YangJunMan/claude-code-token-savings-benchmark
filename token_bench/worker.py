@@ -27,6 +27,7 @@ from pathlib import Path
 
 from token_bench.claude_code import CLAUDE_BIN
 from token_bench.conditions import ALLOWED_INJECTION_TYPES, Injection
+from token_bench.job_store import requeue_orphaned_running
 
 # 개인 설정(스킬·플러그인·훅·MCP)이 측정에 섞이지 않게 하는 두 가지 방식.
 #
@@ -124,6 +125,7 @@ def worker_lock(db_path: Path):
             raise WorkerLockError(
                 f"이미 다른 worker가 '{db_path}' 상태 저장소에서 실행 중이다."
             ) from exc
+        requeue_orphaned_running(db_path=db_path)
         yield
     finally:
         _unlock(fp)

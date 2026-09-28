@@ -294,3 +294,12 @@ def test_interrupted_run_is_not_treated_as_a_measurement(tmp_path):
     )
     assert interrupted_reason(str(finished)) is None
     assert interrupted_reason(None) is None
+
+
+def test_is_usage_limit_error_matches_the_observed_session_limit_message():
+    from token_bench.results import is_usage_limit_error
+
+    assert is_usage_limit_error("You've hit your session limit · resets 2:50am")
+    assert is_usage_limit_error("Usage limit reached, try again later")
+    assert not is_usage_limit_error("task failed: expected 200, got 500")
+    assert not is_usage_limit_error(None)

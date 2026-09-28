@@ -4,7 +4,18 @@ from pathlib import Path
 import pytest
 
 from token_bench.authorization import approve, build_estimate
-from token_bench.job_store import JobStoreError, enqueue, get_job, list_jobs
+from token_bench.job_store import (
+    JobStoreError,
+    claim_next_queued,
+    delete_job,
+    enqueue,
+    finish_job,
+    get_job,
+    list_jobs,
+    requeue_job,
+    requeue_orphaned_running,
+    retry_job,
+)
 from token_bench.workspace import RunWorkspace
 
 SUBSCRIPTION_AUTH = {
@@ -132,3 +143,130 @@ def test_get_job_returns_matching_record(tmp_path):
     assert job is not None
     assert job.condition_id == "base"
     assert job.content_id == "abc"
+
+
+def test_requeue_orphaned_running_resets_to_queued_so_it_retries(tmp_path):
+    """worker가 죽었을 때 'running'에 멈춘 작업은 실패로 남기지 않고 처음부터
+    다시 시도한다 — 인프라 문제(프로세스가 죽음)를 측정 실패와 섞지 않기
+    위해서다."""
+
+    workspaces = [_workspace("base"), _workspace("be-brief")]
+    plan, approval = _approved_plan(workspaces)
+    db_path = tmp_path / "state.db"
+    enqueue(plan, approval, db_path=db_path)
+    claimed = claim_next_queued(db_path=db_path)
+    assert claimed.run_id == workspaces[0].run_id
+
+    reaped = requeue_orphaned_running(db_path=db_path)
+
+    assert [job.run_id for job in reaped] == [workspaces[0].run_id]
+    job = get_job(workspaces[0].run_id, db_path=db_path)
+    assert job.status == "queued"
+    assert job.started_at is None
+    # 순서(sequence)는 유지된다 — 다음 claim이 원래 자리에서 다시 집는다.
+    assert claim_next_queued(db_path=db_path).run_id == workspaces[0].run_id
+
+
+def test_requeue_job_resets_a_specific_running_job_to_queued(tmp_path):
+    """구독 사용 한도로 끊긴 job은 실패로 남기지 않고 그 job부터 다시 시도한다."""
+
+    workspaces = [_workspace("base"), _workspace("be-brief")]
+    plan, approval = _approved_plan(workspaces)
+    db_path = tmp_path / "state.db"
+    enqueue(plan, approval, db_path=db_path)
+    claimed = claim_next_queued(db_path=db_path)
+
+    requeue_job(claimed.run_id, db_path=db_path)
+
+    job = get_job(claimed.run_id, db_path=db_path)
+    assert job.status == "queued"
+    assert job.started_at is None
+
+
+def test_requeue_job_rejects_a_job_that_is_not_running(tmp_path):
+    workspaces = [_workspace("base")]
+    plan, approval = _approved_plan(workspaces)
+    db_path = tmp_path / "state.db"
+    enqueue(plan, approval, db_path=db_path)
+
+    with pytest.raises(JobStoreError):
+        requeue_job(workspaces[0].run_id, db_path=db_path)
+
+
+def test_retry_job_resets_a_blocked_job_to_queued(tmp_path):
+    workspaces = [_workspace("base")]
+    plan, approval = _approved_plan(workspaces)
+    db_path = tmp_path / "state.db"
+    enqueue(plan, approval, db_path=db_path)
+    claimed = claim_next_queued(db_path=db_path)
+    finish_job(
+        claimed.run_id,
+        status="blocked",
+        returncode=None,
+        finished_at="2026-01-01T00:00:00+00:00",
+        duration_seconds=0.0,
+        stdout_path="",
+        stderr_path="",
+        command_json="[]",
+        db_path=db_path,
+    )
+
+    retried = retry_job(claimed.run_id, db_path=db_path)
+
+    assert retried.status == "queued"
+    assert retried.started_at is None
+    assert retried.finished_at is None
+
+
+def test_retry_job_rejects_succeeded_and_active_jobs(tmp_path):
+    workspaces = [_workspace("base"), _workspace("be-brief")]
+    plan, approval = _approved_plan(workspaces)
+    db_path = tmp_path / "state.db"
+    enqueue(plan, approval, db_path=db_path)
+    succeeded = claim_next_queued(db_path=db_path)
+    finish_job(
+        succeeded.run_id,
+        status="succeeded",
+        returncode=0,
+        finished_at="2026-01-01T00:00:00+00:00",
+        duration_seconds=1.0,
+        stdout_path="",
+        stderr_path="",
+        command_json="[]",
+        db_path=db_path,
+    )
+    running = claim_next_queued(db_path=db_path)
+
+    with pytest.raises(JobStoreError):
+        retry_job(succeeded.run_id, db_path=db_path)
+    with pytest.raises(JobStoreError):
+        retry_job(running.run_id, db_path=db_path)
+
+
+def test_delete_job_removes_a_queued_job(tmp_path):
+    workspaces = [_workspace("base"), _workspace("be-brief")]
+    plan, approval = _approved_plan(workspaces)
+    db_path = tmp_path / "state.db"
+    enqueue(plan, approval, db_path=db_path)
+
+    delete_job(workspaces[1].run_id, db_path=db_path)
+
+    assert get_job(workspaces[1].run_id, db_path=db_path) is None
+    assert get_job(workspaces[0].run_id, db_path=db_path) is not None
+
+
+def test_delete_job_rejects_a_running_job(tmp_path):
+    workspaces = [_workspace("base")]
+    plan, approval = _approved_plan(workspaces)
+    db_path = tmp_path / "state.db"
+    enqueue(plan, approval, db_path=db_path)
+    claimed = claim_next_queued(db_path=db_path)
+
+    with pytest.raises(JobStoreError):
+        delete_job(claimed.run_id, db_path=db_path)
+
+
+def test_delete_job_rejects_unknown_run_id(tmp_path):
+    db_path = tmp_path / "state.db"
+    with pytest.raises(JobStoreError):
+        delete_job("does-not-exist", db_path=db_path)

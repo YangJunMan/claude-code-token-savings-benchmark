@@ -239,3 +239,35 @@ def test_work_loop_stops_on_blocked_job_without_processing_rest(sandbox_repo, tm
     assert jobs[0]["status"] == "blocked"
     # 첫 작업이 막혔으므로 두 번째 작업은 큐에 그대로 남아 있어야 한다.
     assert jobs[1]["status"] == "queued"
+
+
+def test_work_once_requeues_a_job_interrupted_by_usage_limit(sandbox_repo, tmp_path):
+    """실행이 구독 사용 한도로 끊기면 'blocked'로 종결하지 않고 다시 큐에
+    넣는다 — 2026-09-15 rtk 실행이 세션 한도로 끊긴 실제 사례를 본떴다."""
+
+    python_body = '''
+import sys
+
+arg = sys.argv[1] if len(sys.argv) > 1 else ""
+if arg == "--version":
+    print("2.1.236 (Claude Code)")
+elif arg == "auth":
+    print('{"loggedIn": true, "authMethod": "claude.ai", "apiProvider": "firstParty", "subscriptionType": "pro"}')
+elif arg == "--help":
+    print("--safe-mode --settings <file-or-json> --permission-mode <mode>")
+else:
+    print('{"type":"system","subtype":"init","model":"claude-sonnet-5"}')
+    print('{"type":"result","subtype":"success","is_error":true,"result":"You\\'ve hit your session limit \\u00b7 resets 2:50am","num_turns":3}')
+    sys.exit(1)
+'''
+    fake_bin = write_fake_cli(tmp_path / "fakebin", "claude", python_body)
+    env = _cli_env(tmp_path / "fakebin")
+    _prepare_approve_enqueue(sandbox_repo, env)
+
+    result = _run_cli(["work", "--once"], cwd=sandbox_repo, env=env)
+    assert result.returncode == 1
+    assert "한도" in result.stderr
+
+    jobs = json.loads(_run_cli(["status"], cwd=sandbox_repo, env=env).stdout)
+    assert jobs[0]["status"] == "queued"
+    assert jobs[0]["started_at"] is None

@@ -6,6 +6,9 @@ const API_BASE = "http://127.0.0.1:8787";
 
 let currentPlan = null;
 let currentPlanPath = null;
+let lastJobsJson = null;
+let lastJobs = [];
+let jobsView = "active"; // "active" | "done"
 
 async function fetchJson(path, options) {
   const res = await fetch(`${API_BASE}${path}`, options);
@@ -185,6 +188,41 @@ async function onSubmit() {
   }
 }
 
+const RETRYABLE_STATUSES = new Set(["blocked", "failed", "cancelled", "timeout", "config-error", "worker-error"]);
+
+async function onRetry(runId) {
+  const status = document.getElementById("status");
+  try {
+    await fetchJson("/api/retry", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ run_id: runId }),
+    });
+    status.textContent = `'${runId}'를 다시 큐에 등록했습니다.`;
+    lastJobsJson = null; // 다음 폴링에서 표를 강제로 다시 그린다.
+    await refreshStatus();
+  } catch (err) {
+    status.textContent = `재시도 실패: ${err.message}`;
+  }
+}
+
+async function onDelete(runId) {
+  if (!confirm(`'${runId}'를 목록에서 삭제할까요?`)) return;
+  const status = document.getElementById("status");
+  try {
+    await fetchJson("/api/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ run_id: runId }),
+    });
+    status.textContent = `'${runId}'를 삭제했습니다.`;
+    lastJobsJson = null;
+    await refreshStatus();
+  } catch (err) {
+    status.textContent = `삭제 실패: ${err.message}`;
+  }
+}
+
 async function onStop() {
   const status = document.getElementById("status");
   try {
@@ -240,6 +278,45 @@ async function updateLiveLog(runningJob) {
   }
 }
 
+// 아직 안 끝난 작업만 "진행 중" 탭에 남는다. 그 외 전부(succeeded 포함)는
+// "완료된 건" 탭으로 간다.
+const ACTIVE_STATUSES = new Set(["queued", "running"]);
+
+function renderJobsTable() {
+  const jobs = lastJobs.filter((j) =>
+    jobsView === "active" ? ACTIVE_STATUSES.has(j.status) : !ACTIVE_STATUSES.has(j.status)
+  );
+  const tbody = document.querySelector("#jobs-table tbody");
+  tbody.innerHTML = "";
+  for (const job of jobs) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td><code>${job.run_id}</code></td>
+      <td>${job.condition_id}</td>
+      <td>${job.status}</td>
+      <td>${job.enqueued_at}</td>
+      <td></td>
+    `;
+    if (RETRYABLE_STATUSES.has(job.status)) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "retry-btn";
+      btn.textContent = "재시도";
+      btn.dataset.runId = job.run_id;
+      tr.lastElementChild.appendChild(btn);
+    }
+    if (job.status !== "running") {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "delete-btn";
+      btn.textContent = "삭제";
+      btn.dataset.runId = job.run_id;
+      tr.lastElementChild.appendChild(btn);
+    }
+    tbody.appendChild(tr);
+  }
+}
+
 async function refreshStatus() {
   // 다른 탭을 보고 있으면 폴링하지 않는다.
   const view = document.getElementById("view-settings");
@@ -253,18 +330,8 @@ async function refreshStatus() {
     const serialized = JSON.stringify(body.jobs);
     if (serialized !== lastJobsJson) {
       lastJobsJson = serialized;
-      const tbody = document.querySelector("#jobs-table tbody");
-      tbody.innerHTML = "";
-      for (const job of body.jobs) {
-        const tr = document.createElement("tr");
-        tr.innerHTML = `
-          <td><code>${job.run_id}</code></td>
-          <td>${job.condition_id}</td>
-          <td>${job.status}</td>
-          <td>${job.enqueued_at}</td>
-        `;
-        tbody.appendChild(tr);
-      }
+      lastJobs = body.jobs;
+      renderJobsTable();
     }
     await updateLiveLog(runningJob);
   } catch (err) {
@@ -441,6 +508,21 @@ function main() {
   document.getElementById("plan-btn").addEventListener("click", onPlan);
   document.getElementById("submit-btn").addEventListener("click", onSubmit);
   document.getElementById("stop-btn").addEventListener("click", onStop);
+  for (const btn of document.querySelectorAll("[data-jobs-tab]")) {
+    btn.addEventListener("click", () => {
+      jobsView = btn.dataset.jobsTab;
+      for (const b of document.querySelectorAll("[data-jobs-tab]")) {
+        b.setAttribute("aria-pressed", String(b === btn));
+      }
+      renderJobsTable();
+    });
+  }
+  document.querySelector("#jobs-table tbody").addEventListener("click", (e) => {
+    const retryBtn = e.target.closest(".retry-btn");
+    if (retryBtn) return onRetry(retryBtn.dataset.runId);
+    const deleteBtn = e.target.closest(".delete-btn");
+    if (deleteBtn) return onDelete(deleteBtn.dataset.runId);
+  });
 
   document.getElementById("add-condition-btn").addEventListener("click", openAddConditionModal);
   document.getElementById("ac-close-btn").addEventListener("click", closeAddConditionModal);
