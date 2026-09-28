@@ -53,6 +53,10 @@ DEFAULT_COMPARISON_PATH = Path("data/comparison.csv")
 # 기록되므로 comparison.csv의 평균에는 들어가지 않는다.
 PUBLISHABLE_STATUSES = frozenset({"succeeded", "failed", "timeout"})
 BASELINE_CONDITION = "BASE"
+# 처치 실행을 비교할 때 기준선으로 삼는 BASE 실행 수. 90분마다 조건 하나만 돌면
+# BASE는 5 tick마다 한 번 나오므로, 같은 날짜 안에서 BASE를 찾는 방식은 비교를
+# 만들지 못한다. 시간축에서 최근 BASE들을 끌어와 기준선으로 쓴다.
+BASELINE_WINDOW = 10
 
 # 웹의 "실행 상세" 탭은 activity-log.csv의 condition 문자열 그대로로 그룹을
 # 나눈다(web/app.js:runsGroupedByCondition). token_bench의 condition_id(소문자,
@@ -209,9 +213,13 @@ def _round(value: float | None, digits: int = 4):
     return "" if value is None else round(value, digits)
 
 
-def _comparison_rows_for_date(runs: list[dict]) -> list[list]:
-    """레거시 `comparison.batch_comparison`과 동일한 계산, 같은 날짜 안에서만."""
-    base_runs = [r for r in runs if r["condition"] == BASELINE_CONDITION]
+def _comparison_rows_for_date(runs: list[dict], base_runs: list[dict] | None = None) -> list[list]:
+    """처치 실행들을 주어진 baseline 집합과 비교한다.
+
+    `base_runs`를 주지 않으면 `runs` 안의 BASE를 쓴다(예전 동작).
+    """
+    if base_runs is None:
+        base_runs = [r for r in runs if r["condition"] == BASELINE_CONDITION]
     noise = {
         "processed": _spread_pct([r["processed"] for r in base_runs]),
         "cost": _spread_pct([r["cost"] for r in base_runs]),
@@ -241,33 +249,46 @@ def _comparison_rows_for_date(runs: list[dict]) -> list[list]:
     return rows
 
 
+def _baseline_window(base_runs: list[dict], run_date: str) -> list[dict]:
+    """그 날짜까지의 BASE 실행 중 마지막 `BASELINE_WINDOW`건을 기준선으로 쓴다.
+
+    아직 BASE가 없던 시기의 실행은 가장 이른 BASE들과 비교한다 — 비교를 아예
+    빼면 그 실행이 표에서 사라진다.
+    """
+
+    earlier = [r for r in base_runs if r["run_date"] <= run_date]
+    window = earlier[-BASELINE_WINDOW:] if earlier else base_runs[:BASELINE_WINDOW]
+    return window
+
+
 def _rebuild_comparison(summary_path: Path, comparison_path: Path) -> None:
-    """`(batch_id, prompt_id)` 단위로 묶어 비교한다.
+    """prompt_id별로, BASE의 최근 `BASELINE_WINDOW`건을 기준선으로 비교한다.
 
-    prompt_id별로 묶지 않으면 large preset BASE가 small preset HEADROOM과
-    비교되는 식의 잘못된 delta가 나온다 — 프롬프트 크기가 다르면 토큰 수
+    prompt_id로 나누지 않으면 large preset BASE가 small preset HEADROOM과
+    비교되는 식의 잘못된 delta가 나온다 — 프롬프트 크기가 다르면 토큰 수 자체가
+    다르므로 같은 preset끼리만 비교해야 한다.
 
-    날짜가 아니라 batch_id(run_id의 첫 `-` 앞부분, 한 번의 estimate/enqueue가
-    공유하는 값)로 묶는다 — 웹의 "재시도" 버튼으로 다시 돌린 job은 나머지
-    조건과 다른 날짜에 끝날 수 있는데, 날짜로 묶으면 그 조건만 base 없는
-    그룹에 혼자 남아 비교표에서 통째로 빠졌다(2026-09-21 rtk 재시도 사례).
-    자체가 다르므로 같은 preset끼리만 비교해야 한다.
+    한 번에 조건 하나만 돌리므로(`bench.yml`) 한 batch에는 조건이 하나뿐이고,
+    같은 날짜에 BASE가 없는 날도 생긴다. 그래서 batch나 날짜로 묶어 그 안에서
+    BASE를 찾는 방식은 비교를 하나도 만들지 못한다. 대신 기준선을 시간축에서
+    끌어온다 — 처치 실행의 날짜까지 쌓인 BASE 중 최근 것들을 쓴다. 날짜가
+    갈려 비교표에서 빠지던 재시도 문제도 이 방식에서는 생기지 않는다
+    (2026-09-21 rtk 재시도 사례).
     """
     if not summary_path.is_file():
         return
     with summary_path.open("r", encoding="utf-8", newline="") as stream:
         summary_rows = list(csv.DictReader(stream))
 
-    by_group: dict[tuple[str, str], list[dict]] = {}
+    # 파일 순서가 곧 실행 순서다(append-only). 기준선 창을 그 순서로 자른다.
+    by_prompt: dict[str, list[dict]] = {}
     for row in summary_rows:
         if row.get("measurable") != "1":
             continue
         quality = row.get("quality_score")
         if quality in (None, ""):
             continue  # 평가 안 돌린 실행은 quality delta에 넣을 수 없다.
-        batch_id = row["run_id"].split("-", 1)[0]
-        key = (batch_id, row.get("prompt_id", ""))
-        by_group.setdefault(key, []).append({
+        by_prompt.setdefault(row.get("prompt_id", ""), []).append({
             "condition": row["condition"],
             "processed": float(row["processed_tokens"]),
             "cost": float(row["cost_usd"]),
@@ -277,11 +298,19 @@ def _rebuild_comparison(summary_path: Path, comparison_path: Path) -> None:
         })
 
     out_rows = []
-    for batch_id, prompt_id in sorted(by_group):
-        group = by_group[(batch_id, prompt_id)]
-        run_date = min(r["run_date"] for r in group)
-        for row in _comparison_rows_for_date(group):
-            out_rows.append([run_date, prompt_id, *row])
+    for prompt_id in sorted(by_prompt):
+        runs = by_prompt[prompt_id]
+        base_runs = [r for r in runs if r["condition"] == BASELINE_CONDITION]
+        if not base_runs:
+            continue
+        by_date: dict[str, list[dict]] = {}
+        for run in runs:
+            if run["condition"] != BASELINE_CONDITION:
+                by_date.setdefault(run["run_date"], []).append(run)
+        for run_date in sorted(by_date):
+            window = _baseline_window(base_runs, run_date)
+            for row in _comparison_rows_for_date(by_date[run_date], window):
+                out_rows.append([run_date, prompt_id, *row])
 
     comparison_path.parent.mkdir(parents=True, exist_ok=True)
     with comparison_path.open("w", newline="", encoding="utf-8") as stream:
