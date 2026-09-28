@@ -1,8 +1,12 @@
 name: pages
 
+# web은 main, 측정 데이터는 data 브랜치에서 가져와 합친다. 두 브랜치를 모두
+# 트리거로 둔다 — paths 필터는 브랜치별로 나눠 쓸 수 없으므로 두 경로를 함께
+# 적는다. main의 `data/**`는 없고 data 브랜치의 `web/**`도 없으니 실제로는
+# "main의 web 변경" 또는 "data 브랜치의 데이터 추가"만 걸린다.
 on:
   push:
-    branches: [main]
+    branches: [main, data]
     paths:
       - "web/**"
       - "data/**"
@@ -25,6 +29,11 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      # 측정 데이터는 main에 없다 — 봇이 data 브랜치에만 커밋한다.
+      - uses: actions/checkout@v4
+        with:
+          ref: data
+          path: _data
       # 저장소와 같은 배치로 올리기 때문에 app.js가 그대로 ../data/*.csv를
       # fetch한다. 로컬에서 `python3 -m http.server`로 볼 때와 경로가 갈리지
       # 않는다. 루트 index.html은 /web/으로 보내는 리다이렉트다 — 이게 없으면
@@ -33,7 +42,7 @@ jobs:
         run: |
           mkdir -p _site/web _site/data
           cp -r web/. _site/web/
-          cp -r data/. _site/data/
+          cp -r _data/data/. _site/data/
           printf '%s\n' \
             '<!doctype html><meta charset="utf-8"><link rel="icon" href="data:,">' \
             '<meta http-equiv="refresh" content="0; url=web/">' > _site/index.html

@@ -15,6 +15,18 @@ permissions:
   contents: read
 
 jobs:
+  # main은 사람만 쓴다. 측정 결과는 data 브랜치가, 코드 수정안은
+  # self-heal.yml의 PR이 담당하므로 main에 봇 push가 일어날 이유가 없다.
+  # 일어났다면 그 경로가 새로 생긴 것이고, 그건 규칙이 깨진 것이다.
+  no-bot-push-to-main:
+    if: github.event_name == 'push' && github.actor == 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: main is human-only
+        run: |
+          echo "자동화가 main에 직접 push했다. 데이터는 data 브랜치로, 코드는 PR로 가야 한다."
+          exit 1
+
   test:
     strategy:
       fail-fast: false
