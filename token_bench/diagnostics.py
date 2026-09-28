@@ -1,35 +1,58 @@
-"""한 실행이 왜 이렇게 됐는지(테스트 실패→재수정, 같은 파일 재확인 등) 사람이
-읽을 수 있는 이유를 transcript에서 뽑는다.
+"""한 실행이 왜 이렇게 됐는지(무엇을 잘못 읽고 같은 일을 반복했는지, 왜
+timeout까지 끌렸는지)를 transcript에서 읽어 사람이 읽을 수 있는 이유로 남긴다.
 
-"BASE 대비 처리 토큰이 더 컸다" 같은 숫자만으로는 원인을 알 수 없다 - 그
-숫자 뒤에 있는 사건(테스트가 실패해서 고쳤다, 같은 파일을 다시 읽었다 등)을
-찾아 turn 단위로 남긴다. LLM 요약을 쓰지 않는다 - 매 collect마다 모델을
-호출하면 비용이 들고, 정규식으로 충분히 잡히는 패턴(test 실패/통과, 파일
-재읽기)이다.
+정규식으로 test 실패·파일 재읽기만 잡던 방식을 LLM 요약으로 바꿨다 — 사용자
+결정. 정규식은 "무슨 일이 있었나"(테스트가 실패했다)는 찍어도 "무엇을 잘못
+인식했나"는 못 쓰고, `Read` 도구만 보기 때문에 파일을 `cat`으로 읽는 조건에서는
+같은 사건을 아예 놓쳤다.
+
+비용은 두 가지로 누른다. 모델은 가장 싼 축(`claude-haiku-4-5`)을 쓰고, raw
+transcript(1MB ≈ 250K 토큰, Haiku의 200K context를 넘는다) 대신 turn별 도구
+호출 요약만 넣는다.
+
+자격증명이 없거나 호출이 실패하면 manifest를 건드리지 않고 넘어간다 — 진단은
+부가 정보이고, 이것 때문에 collect 전체가 실패하면 측정 데이터를 잃는다.
 """
 
 from __future__ import annotations
 
 import json
-import re
-from dataclasses import dataclass
+import os
+import sys
 from pathlib import Path
 
-_FAIL_MARKERS = re.compile(r"FAILED \(|Traceback \(most recent call last\)|ERROR: ")
-_PASS_MARKERS = re.compile(r"\bOK\b\s*$")
-_TEST_NAME = re.compile(r"\b(test_\w+)\b")
-_ERROR_LINE = re.compile(r"(AssertionError|AttributeError|TypeError|ValueError|KeyError|Exception)[:\s].{0,120}")
-_TEST_COMMAND = re.compile(r"unittest|pytest|go test|npm test|npm run test")
+# 기본은 현행 최저가 모델. 세대가 바뀌면 이 id가 막히므로, 그때는 Models API가
+# 실제로 주는 목록에서 아래 선호 순서(싼 계열 먼저)로 다시 고른다. 가격 필드는
+# API에 없어서 계열 이름으로 고른다.
+DEFAULT_MODEL = os.environ.get("TOKEN_BENCH_DIAGNOSIS_MODEL", "claude-haiku-4-5")
+MODEL_PREFERENCE = ("haiku", "sonnet")
+# Haiku의 200K context와 회당 비용을 함께 누르는 상한. 넘는 만큼은 뒤를 자른다
+# — 반복·timeout은 실행 후반에 나타나므로 앞이 아니라 중간을 버린다.
+MAX_DIGEST_CHARS = 60_000
+MAX_RESULT_CHARS = 300
+
+_SYSTEM = """너는 Claude Code 실행 기록을 읽고 원인을 설명하는 분석자다.
+
+입력은 한 실행의 turn별 도구 호출 요약이다. 다음을 한국어로 쓴다.
+
+- 같은 일을 반복했다면, 무엇을 잘못 인식해서 반복이 시작됐는지 쓴다. 반복
+  사실만 나열하지 말고 오해의 내용을 지목한다.
+- 실행이 timeout으로 끊겼다면, 어디서 진행이 멈췄고 무엇이 그 상태를 벗어나지
+  못하게 했는지 쓴다.
+- 토큰·turn 수가 이상하게 늘어난 구간이 보이면 그 이유를 쓴다.
+- 특이사항이 없으면 events를 빈 배열로 둔다. 없는 원인을 만들지 않는다.
+
+출력은 JSON 하나만 낸다. 설명이나 코드블록을 붙이지 않는다.
+
+{"summary": "한 줄 요약",
+ "events": [{"turn": 12, "kind": "repeated_misread|timeout_stall|token_spike|other",
+             "summary": "turn 12: 무엇을 어떻게 잘못 봤고 그래서 무엇이 반복됐는지"}]}
+"""
 
 
-@dataclass(frozen=True)
-class Finding:
-    turn: int
-    kind: str  # "test_failure" | "test_recovered" | "repeated_read"
-    summary: str
+def _events(stdout_path: str | Path) -> list[tuple[int, str, dict, str]]:
+    """turn 순서대로 (turn, 도구 이름, 입력, 결과 텍스트)를 뽑는다."""
 
-
-def _events(stdout_path: str | Path) -> list[dict]:
     path = Path(stdout_path)
     if not path.is_file():
         return []
@@ -72,63 +95,136 @@ def _events(stdout_path: str | Path) -> list[dict]:
     return out
 
 
-def diagnose(stdout_path: str | Path) -> list[Finding]:
-    """test 실패→재통과, 같은 파일 재읽기 패턴을 찾아 turn 순서대로 반환한다."""
+def _digest(stdout_path: str | Path) -> str:
+    """transcript를 turn별 한 줄 요약으로 압축한다."""
 
-    calls = _events(stdout_path)
-    findings: list[Finding] = []
+    lines: list[str] = []
+    for turn, name, inp, result in _events(stdout_path):
+        target = (
+            inp.get("command")
+            or inp.get("file_path")
+            or inp.get("pattern")
+            or inp.get("description")
+            or ""
+        )
+        head = " ".join(str(result).split())[:MAX_RESULT_CHARS]
+        lines.append(f"turn {turn} {name}: {str(target)[:200]} => {head}")
 
-    last_failure: str | None = None  # 가장 최근 실패한 turn의 테스트 이름들
-    read_seen: dict[str, int] = {}
-
-    for turn, name, inp, result in calls:
-        if name == "Bash" and _TEST_COMMAND.search(inp.get("command", "")):
-            if _FAIL_MARKERS.search(result):
-                error = _ERROR_LINE.search(result)
-                test_name = _TEST_NAME.search(result)
-                detail = error.group(0) if error else "테스트 실패"
-                which = f" ({test_name.group(1)})" if test_name else ""
-                findings.append(Finding(
-                    turn, "test_failure",
-                    f"turn {turn}: 테스트 실패{which} — {detail}",
-                ))
-                last_failure = test_name.group(1) if test_name else "이전 테스트"
-            elif _PASS_MARKERS.search(result) and last_failure:
-                findings.append(Finding(
-                    turn, "test_recovered",
-                    f"turn {turn}: 앞서 실패했던 테스트({last_failure}) 수정 후 통과",
-                ))
-                last_failure = None
-        elif name == "Read":
-            file_path = inp.get("file_path", "")
-            if file_path:
-                if file_path in read_seen:
-                    findings.append(Finding(
-                        turn, "repeated_read",
-                        f"turn {turn}: {Path(file_path).name} 다시 읽음"
-                        f"(처음 turn {read_seen[file_path]}) — 앞서 읽은 내용으로"
-                        " 부족했거나 다시 확인이 필요했다는 뜻",
-                    ))
-                else:
-                    read_seen[file_path] = turn
-
-    return findings
+    text = "\n".join(lines)
+    if len(text) <= MAX_DIGEST_CHARS:
+        return text
+    # 반복과 정지는 실행 후반에 드러난다. 앞뒤를 남기고 가운데를 버린다.
+    keep = MAX_DIGEST_CHARS // 2
+    return f"{text[:keep]}\n...(중략)...\n{text[-keep:]}"
 
 
-def diagnosis_summary(findings: list[Finding]) -> str:
-    if not findings:
-        return "특이사항 없음 — 되짚어야 할 실패·재확인이 감지되지 않았다."
-    return " / ".join(f.summary for f in findings)
+def _create(client, model: str, prompt: str):
+    return client.messages.create(
+        model=model,
+        max_tokens=1500,
+        system=[{"type": "text", "text": _SYSTEM, "cache_control": {"type": "ephemeral"}}],
+        messages=[{"role": "user", "content": prompt}],
+    )
 
 
-def update_manifest(run_id: str, stdout_path: str | Path, manifest_path: Path) -> None:
+def _cheapest_available(client) -> str | None:
+    """Models API가 주는 목록에서 선호 계열 순으로 하나 고른다.
+
+    같은 계열이 여럿이면 `created_at`이 가장 최근인 것을 쓴다 — id 사전순은
+    버전 순서가 아니다(`claude-haiku-10-0` < `claude-haiku-4-5`).
+    """
+
+    try:
+        available = [
+            (model.id, getattr(model, "created_at", None) or "")
+            for model in client.models.list()
+        ]
+    except Exception as exc:
+        print(f"모델 목록을 읽을 수 없다: {exc}", file=sys.stderr)
+        return None
+    for family in MODEL_PREFERENCE:
+        matches = [entry for entry in available if family in entry[0]]
+        if matches:
+            return max(matches, key=lambda entry: str(entry[1]))[0]
+    return None
+
+
+def diagnose(
+    stdout_path: str | Path,
+    *,
+    status: str = "succeeded",
+    condition_id: str = "",
+    model: str = DEFAULT_MODEL,
+) -> dict | None:
+    """실행 하나를 LLM으로 진단한다. 자격증명·호출 실패 시 None."""
+
+    digest = _digest(stdout_path)
+    if not digest:
+        return None
+    if not (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")):
+        print("진단 건너뜀: ANTHROPIC_API_KEY가 없다.", file=sys.stderr)
+        return None
+
+    try:
+        import anthropic
+    except ImportError:
+        print("진단 건너뜀: anthropic 패키지가 없다.", file=sys.stderr)
+        return None
+
+    prompt = (
+        f"조건: {condition_id or '(미지정)'}\n"
+        f"실행 종료 상태: {status}\n\n"
+        f"turn 기록:\n{digest}"
+    )
+    client = anthropic.Anthropic()
+    try:
+        response = _create(client, model, prompt)
+    except anthropic.NotFoundError:
+        # 이 id가 은퇴했다. 남아 있는 모델 중 싼 계열로 한 번 더 시도한다.
+        fallback = _cheapest_available(client)
+        if fallback is None:
+            print(f"진단 실패: {model}이 없고 대체 모델도 못 찾았다.", file=sys.stderr)
+            return None
+        print(f"{model} 사용 불가 — {fallback}으로 대체한다.", file=sys.stderr)
+        try:
+            response = _create(client, fallback, prompt)
+        except Exception as exc:
+            print(f"진단 실패({fallback}): {exc}", file=sys.stderr)
+            return None
+    except Exception as exc:  # 진단 실패가 측정 데이터 수집을 막지 않는다.
+        print(f"진단 실패({model}): {exc}", file=sys.stderr)
+        return None
+
+    text = "".join(block.text for block in response.content if block.type == "text").strip()
+    if text.startswith("```"):
+        # ```json ... ``` 으로 감싸 오는 경우가 흔하다. 울타리만 벗긴다.
+        text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+    try:
+        report = json.loads(text)
+    except json.JSONDecodeError:
+        # 모델이 JSON을 안 냈으면 원문을 그대로 한 건으로 남긴다. 버리면
+        # 왜 진단이 비었는지 알 수 없다.
+        return {"summary": text[:500], "events": [{"turn": 0, "kind": "other", "summary": text[:1000]}]}
+    if not isinstance(report, dict) or not report.get("events"):
+        return None
+    return {"summary": str(report.get("summary", "")), "events": report["events"]}
+
+
+def update_manifest(
+    run_id: str,
+    stdout_path: str | Path,
+    manifest_path: Path,
+    *,
+    status: str = "succeeded",
+    condition_id: str = "",
+) -> None:
     """모든 run_id의 진단 결과를 파일 하나(`data/run-diagnostics.json`)에 모은다.
 
     웹 페이지가 실행을 고를 때마다 파일을 따로 fetch하지 않고, 부팅 시 이
     manifest 하나만 읽으면 되게 하려는 것이다. 특이사항 없는 실행은 항목을
     아예 안 만든다(예전에 지운 run_id가 다시 쌓이는 것도 여기서 막힌다).
     """
-    findings = diagnose(stdout_path)
+    report = diagnose(stdout_path, status=status, condition_id=condition_id)
 
     manifest: dict = {}
     if manifest_path.is_file():
@@ -137,11 +233,8 @@ def update_manifest(run_id: str, stdout_path: str | Path, manifest_path: Path) -
         except json.JSONDecodeError:
             manifest = {}
 
-    if findings:
-        manifest[run_id] = {
-            "summary": diagnosis_summary(findings),
-            "events": [f.__dict__ for f in findings],
-        }
+    if report:
+        manifest[run_id] = report
     else:
         manifest.pop(run_id, None)
 
