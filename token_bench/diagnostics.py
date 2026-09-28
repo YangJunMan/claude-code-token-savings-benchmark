@@ -59,7 +59,7 @@ def _events(stdout_path: str | Path) -> list[tuple[int, str, dict, str]]:
     msgs: dict[str, list[tuple[str, str, dict]]] = {}
     order: list[str] = []
     results: dict[str, str] = {}
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
         line = line.strip()
         if not line:
             continue
