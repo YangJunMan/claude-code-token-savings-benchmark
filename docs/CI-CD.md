@@ -24,8 +24,10 @@
 - `push`는 main에만, 그리고 모든 `pull_request`.
 - ubuntu·macos·windows 3종에서 `pytest tests/`, `node --check`, quickstart 스크립트
   구문 검사.
-- 비밀·로컬 절대경로 유출 검사: `sk-ant-(api03|oat|admin)-`,
-  `ANTHROPIC_API_KEY=`, `CLAUDE_CODE_OAUTH_TOKEN=`, `/Users/yang/`.
+- 비밀·로컬 절대경로 유출 검사. API key·OAuth 토큰·Admin key의 접두사, 환경변수에
+  값을 직접 대입한 형태, 개발자 홈 디렉터리 절대경로를 찾는다. 정확한 정규식은
+  `ci.yml`의 `Guard against leaked secrets and local paths` 단계에 있다 — 이 문서에
+  패턴을 그대로 옮기면 그 검사가 이 문서에 걸린다.
 - `no-bot-push-to-main` job: `github-actions[bot]`이 main에 직접 push하면 무조건
   실패시킨다. 데이터는 `data` 브랜치로, 코드는 PR로 가므로 이 경로는 존재해서는
   안 된다.
