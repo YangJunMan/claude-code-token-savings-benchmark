@@ -1,0 +1,265 @@
+name: bench
+
+# 실험 하나(조건 1개)를 돌려 결과 CSV를 data 브랜치에 append한다.
+#
+# 한 tick에 조건 하나만 돌린다 — 간격은 세트가 아니라 실험 단위다(사용자 결정).
+# 조건 5개를 한 번에 돌리면 조건들이 몇 분 간격으로 연달아 실행돼 간격의 의미가
+# 사라진다. 매 tick마다 표본이 가장 적은 조건을 골라 균등하게 쌓는다.
+#
+# 주기와 과제 크기가 단계에 따라 다르다(사용자 결정).
+#   small 단계: 실험당 90분마다. 조건마다 성공 30건을 채울 때까지.
+#   large 단계: 실험당 3시간마다.
+#
+# cron은 조건 분기를 못 하므로 두 스케줄을 항상 등록해 두고, large 단계에서는
+# :30 tick을 런타임에 건너뛴다. :00 cron만 남으면 그것이 정확히 3시간 주기다.
+# 90분도 cron 한 줄로는 표현할 수 없다 — 5필드 cron에 "매 90분"이 없고 90분은
+# 1시간의 정수배도 아니다. :00과 :30을 3시간 주기로 엇갈리게 두어 만든다:
+# 00:00, 01:30, 03:00, 04:30 ... 22:30.
+#
+# 앞 회차가 아직 돌고 있으면 concurrency가 새 회차를 대기시키고, 그 사이 또
+# cron이 뜨면 대기 중인 쪽이 취소된다 — "바쁘면 이번 차례는 건너뛴다"가 된다.
+on:
+  schedule:
+    - cron: "0 0,3,6,9,12,15,18,21 * * *"
+    - cron: "30 1,4,7,10,13,16,19,22 * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "full=실제 측정까지, preflight=모델 호출 없이 환경만 확인"
+        type: choice
+        options: [full, preflight]
+        default: full
+
+concurrency:
+  group: bench
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  issues: write
+
+env:
+  # 처치 도구 버전을 고정한다. 여기가 바뀌면 그 뒤 실행은 다른 도구로 측정된
+  # 것이므로, 올릴 때는 결과 CSV의 claude_version·tool fingerprint로 구분한다.
+  CLAUDE_CODE_VERSION: 2.1.283
+  RTK_VERSION: 0.46.0
+  CAVEMAN_SHA: 15581d14007fd01fb3f132016741962f34936ca2
+  TIMEOUT_SECONDS: 1800
+  # 시리즈 전체가 같은 격리로 돌아야 한다. 과거 데이터(5조건 한 배치)와 같은 값.
+  ISOLATION: project-settings
+
+jobs:
+  # 프리셋 판정은 측정과 분리한다 — 도구를 설치하기 전에 "이번 차례는 건너뛴다"를
+  # 결정할 수 있어야 runner 시간을 낭비하지 않는다.
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      preset: ${{ steps.decide.outputs.preset }}
+      condition: ${{ steps.decide.outputs.condition }}
+      run: ${{ steps.decide.outputs.run }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Restore data from the data branch
+        env:
+          DATA_BRANCH: data
+        run: |
+          set -euo pipefail
+          if git fetch origin "$DATA_BRANCH" --depth=1 2>/dev/null; then
+            git checkout "origin/$DATA_BRANCH" -- data/
+          else
+            mkdir -p data
+          fi
+      - name: Decide what this tick runs
+        id: decide
+        env:
+          # 90분 스케줄의 :30 쪽. large 단계에서는 이 tick을 건너뛴다.
+          HALF_HOUR_CRON: "30 1,4,7,10,13,16,19,22 * * *"
+          FIRED_CRON: ${{ github.event.schedule }}
+        run: |
+          set -euo pipefail
+          target=$(python3 -m token_bench next-target)
+          echo "$target"
+          preset=$(printf '%s' "$target" | python3 -c 'import json,sys; print(json.load(sys.stdin)["preset"])')
+          condition=$(printf '%s' "$target" | python3 -c 'import json,sys; print(json.load(sys.stdin)["condition_id"])')
+          echo "preset=$preset" >> "$GITHUB_OUTPUT"
+          echo "condition=$condition" >> "$GITHUB_OUTPUT"
+          if [ "$preset" = "large" ] && [ "$FIRED_CRON" = "$HALF_HOUR_CRON" ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "large 단계는 실험당 3시간마다 돈다 — 이 tick은 건너뛴다."
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "이번 실험: preset=$preset condition=$condition"
+          fi
+
+  run:
+    needs: plan
+    if: needs.plan.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    # 실험 하나만 돌린다 — timeout 1800s(30분) + 도구 설치·게시. 넉넉히 잡아도
+    # job 한도(6시간)에서 멀다.
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # publish/collect는 기존 CSV를 읽어야 한다. `comparison.csv`는 전체
+      # `run-summary.csv`에서 매번 다시 계산되고, 진단 manifest도 기존 파일에
+      # 항목을 더한다. 빈 작업 트리로 돌리면 그 두 파일이 이번 회차만 담은
+      # 내용으로 덮여 과거 이력을 잃는다.
+      - name: Restore data from the data branch
+        env:
+          DATA_BRANCH: data
+        run: |
+          set -euo pipefail
+          if git fetch origin "$DATA_BRANCH" --depth=1 2>/dev/null; then
+            git checkout "origin/$DATA_BRANCH" -- data/
+            ls -l data/
+          else
+            echo "data 브랜치가 아직 없다 — 첫 회차로 취급한다."
+            mkdir -p data
+          fi
+
+      - name: Install Claude Code
+        run: npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+
+      - name: Install rtk
+        run: |
+          set -euo pipefail
+          url="https://github.com/rtk-ai/rtk/releases/download/v${RTK_VERSION}/rtk-x86_64-unknown-linux-musl.tar.gz"
+          curl -fsSL "$url" -o /tmp/rtk.tar.gz
+          tar -xzf /tmp/rtk.tar.gz -C /tmp
+          install -m 755 "$(find /tmp -maxdepth 2 -type f -name rtk | head -1)" /usr/local/bin/rtk
+          rtk --version
+
+      - name: Install caveman plugin
+        run: |
+          set -euo pipefail
+          # conditions.json이 가리키는 경로(~/.claude/plugins/cache/caveman/caveman/*)에
+          # 직접 체크아웃한다. `claude plugin install`은 항상 최신을 받아 버전을
+          # 고정할 수 없다.
+          dest="$HOME/.claude/plugins/cache/caveman/caveman/${CAVEMAN_SHA:0:12}"
+          git clone --filter=blob:none --no-checkout https://github.com/JuliusBrussee/caveman "$dest"
+          git -C "$dest" checkout "$CAVEMAN_SHA"
+          test -f "$dest/plugins/caveman/skills/caveman/SKILL.md"
+
+      # 측정 실행 단계에는 ANTHROPIC_API_KEY를 주지 않는다. 이 이름이 환경에
+      # 있으면 claude가 API key 경로로 붙고 preflight가 구독 실행을 거부한다
+      # (`preflight.py:85`). 진단은 아래 별도 단계에서만 키를 본다.
+      - name: Run one batch
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          PRESET: ${{ needs.plan.outputs.preset }}
+          CONDITION: ${{ needs.plan.outputs.condition }}
+          MODE: ${{ inputs.mode || 'full' }}
+        run: |
+          set -euo pipefail
+          # `--isolation`을 고정하는 것이 중요하다. 지정하지 않으면 격리 모드가
+          # 배치 내용에서 유도되어, 조건 하나씩 돌리는 지금 구조에서는 base가
+          # safe-mode, rtk가 project-settings로 갈린다 — 처치 말고도 달라지는
+          # 것이 생겨 조건 비교가 무너진다. 과거 데이터도 5조건 한 배치라
+          # project-settings였다.
+          python3 -m token_bench estimate --only "$CONDITION" --isolation "$ISOLATION" \
+            --timeout-seconds "$TIMEOUT_SECONDS" --preset "$PRESET" > /tmp/plan.json
+          batch_id=$(python3 -c 'import json;print(json.load(open("/tmp/plan.json"))["batch_id"])')
+          digest=$(python3 -c 'import json;print(json.load(open("/tmp/plan.json"))["digest"])')
+          plan=".token-bench/runs/$batch_id/plan.json"
+          if [ "$MODE" = "preflight" ]; then
+            # estimate가 이미 preflight·도구 지문·프롬프트 준비를 모두 통과했다.
+            # 여기서 멈추면 모델을 호출하지 않으므로 구독 한도를 쓰지 않는다.
+            echo "preflight 모드 — 계획까지만 확인하고 멈춘다."
+            python3 -c 'import json; p=json.load(open("/tmp/plan.json")); print("batch:", p["batch_id"]); print("isolation:", p["isolation"]); [print("run:", r["run_id"], r["condition_id"]) for r in p["runs"]]'
+            exit 0
+          fi
+          python3 -m token_bench approve --plan "$plan" --confirm "$digest"
+          python3 -m token_bench enqueue --plan "$plan" --approval ".token-bench/runs/$batch_id/approval.json"
+          python3 -m token_bench work --exit-when-empty
+
+      - name: Publish and diagnose
+        if: inputs.mode != 'preflight'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet anthropic
+          python3 -m token_bench publish
+          # 진단이 모델을 갈아탔거나 아예 실패했으면 stderr에 남는다. 무인
+          # 실행에서는 아무도 그 로그를 보지 않으므로 파일로 받아 다음 단계에서
+          # issue를 연다.
+          python3 -m token_bench collect 2>/tmp/diagnose.err || status=$?
+          cat /tmp/diagnose.err >&2
+          exit "${status:-0}"
+
+      # 진단 모델을 자동으로 넓히지 않는다는 규칙의 나머지 절반: 규칙 밖으로
+      # 나가야 하는 상황이 오면 조용히 넘기지 말고 사람을 부른다.
+      - name: Report diagnosis drift
+        if: always() && inputs.mode != 'preflight'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -f /tmp/diagnose.err || exit 0
+          if ! grep -qE "사용 불가|진단 실패|진단 건너뜀|모델 목록을 읽을 수 없다" /tmp/diagnose.err; then
+            exit 0
+          fi
+          title="진단 모델 점검 필요"
+          # 열려 있는 같은 issue가 있으면 새로 만들지 않는다. 매시간 실행이라
+          # 그대로 두면 하루에 24개가 쌓인다.
+          if [ -n "$(gh issue list --state open --search "$title in:title" --json number --jq '.[0].number')" ]; then
+            echo "같은 issue가 이미 열려 있다."
+            exit 0
+          fi
+          gh issue create --title "$title" --body "$(printf 'Automated benchmark run could not complete its diagnosis step as configured.\n\nThe diagnosis model policy lives in `token_bench/diagnostics.py` (`DEFAULT_MODEL`, `MODEL_PREFERENCE`). The workflow does not widen that policy on its own - it stops and files this issue instead, so the replacement model is chosen by a person.\n\nRun: %s/%s/actions/runs/%s\n\nDiagnosis stderr:\n\n```\n%s\n```\n' \
+            "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" "$(tail -40 /tmp/diagnose.err)")"
+
+      # 진단이 실패해 앞 단계가 죽어도 측정 결과는 커밋한다 — 실험 데이터를
+      # 진단 문제로 잃지 않는다.
+      #
+      # main이 아니라 data 브랜치에 커밋한다. main은 사람이 PR로 병합한 커밋만
+      # 남긴다 — 하루 16개의 봇 커밋이 섞이면 사람이 한 작업이 히스토리에서
+      # 안 보인다(사용자 결정). data는 orphan 브랜치라 main과 히스토리를
+      # 공유하지 않는다.
+      - name: Commit results to the data branch
+        if: always() && inputs.mode != 'preflight'
+        env:
+          DATA_BRANCH: data
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- data/; then
+            echo "결과 변화 없음 — 커밋하지 않는다."
+            exit 0
+          fi
+          # 새 CSV를 잠시 보관한 뒤 작업 트리를 정리하고 data 브랜치로 갈아타
+          # 다시 넣는다. main의 코드를 data 브랜치에 섞지 않으려는 것이고,
+          # 스테이징된 data/ 변경을 들고 브랜치를 바꾸면 충돌할 수 있다.
+          tmp=$(mktemp -d)
+          cp -R data/. "$tmp/"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git reset --hard
+          git clean -fd data
+          if git fetch origin "$DATA_BRANCH" --depth=1 2>/dev/null; then
+            git checkout -B "$DATA_BRANCH" "origin/$DATA_BRANCH"
+          else
+            # 첫 회차: 코드 히스토리를 물려받지 않는 orphan 브랜치로 시작한다.
+            git checkout --orphan "$DATA_BRANCH"
+            git rm -rq --cached . || true
+          fi
+          mkdir -p data
+          cp -R "$tmp/." data/
+          git add data/
+          if git diff --cached --quiet; then
+            echo "data 브랜치 기준으로는 변화가 없다 — 커밋하지 않는다."
+            exit 0
+          fi
+          git commit -m "data: 자동 실행 결과 추가"
+          git push origin "$DATA_BRANCH"

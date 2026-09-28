@@ -2,6 +2,11 @@
 __pycache__/
 *.pyc
 
+# 측정 결과는 main이 아니라 data 브랜치가 소유한다 — 하루 16개의 봇 커밋이
+# main에 섞이면 사람이 한 작업이 히스토리에서 안 보인다. 로컬에서는
+# `quickstart.sh`가 data 브랜치에서 받아 이 디렉터리에 풀어 둔다.
+data/
+
 # 로컬 실행 상태 — 작업 디렉터리, 큐 DB, 원본 로그
 .token-bench/
 benchmark/runs/

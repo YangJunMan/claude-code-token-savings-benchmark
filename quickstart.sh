@@ -51,6 +51,18 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+# 측정 결과는 data 브랜치가 소유한다(main에는 없다). 웹이 ../data/*.csv를
+# fetch하므로 그 전에 작업 트리에 풀어 둔다. 네트워크가 없거나 브랜치가 아직
+# 없으면 지금 있는 파일로 계속한다 — 실험 실행 자체는 이 데이터가 필요 없다.
+if git rev-parse --git-dir >/dev/null 2>&1; then
+  if git fetch --depth=1 origin data >/dev/null 2>&1; then
+    echo "== data 브랜치에서 측정 결과를 받습니다 =="
+    git archive FETCH_HEAD data | tar -x
+  else
+    echo "== data 브랜치를 받지 못했습니다 — 로컬에 있는 결과로 계속합니다 =="
+  fi
+fi
+
 if port_in_use "$API_PORT"; then
   echo "== 로컬 실험 API는 이미 :${API_PORT}에서 실행 중입니다 =="
 else
