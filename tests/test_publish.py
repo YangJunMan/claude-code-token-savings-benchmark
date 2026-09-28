@@ -1,8 +1,9 @@
 import csv
+import json
 from pathlib import Path
 
 from token_bench.authorization import approve, build_estimate
-from token_bench.job_store import enqueue, finish_job, claim_next_queued
+from token_bench.job_store import enqueue, finish_job, claim_next_queued, retry_job
 from token_bench.publish import CSV_COLUMNS, publish
 from token_bench.results import RunResult, save as save_result
 from token_bench.workspace import RunWorkspace
@@ -198,3 +199,50 @@ def test_csv_header_matches_csv_columns_constant(tmp_path):
     with out_path.open(encoding="utf-8") as f:
         header = next(csv.reader(f))
     assert tuple(header) == CSV_COLUMNS
+
+
+def test_retried_run_is_published_as_a_second_attempt(tmp_path):
+    """timeout 뒤 재시도해서 성공한 실행이 누락되지 않는다.
+
+    재시도는 같은 run_id를 다시 쓴다. 예전에는 run_id만 보고 걸러서 두 번째
+    결과가 CSV에 영원히 들어가지 않았다.
+    """
+    db_path, job = _make_finished_job(tmp_path, status="timeout")
+    out_path = tmp_path / "results.csv"
+
+    assert [r["status"] for r in publish(db_path=db_path, output_path=out_path)] == ["timeout"]
+
+    # 웹의 "재시도" 버튼과 같은 경로로 되돌린 뒤 성공으로 끝낸다.
+    retry_job(job.run_id, db_path=db_path)
+    claimed = claim_next_queued(db_path=db_path)
+    assert claimed is not None
+    result_path = Path(job.workdir).parent / "result.json"
+    raw = json.loads(result_path.read_text(encoding="utf-8"))
+    raw["status"] = "succeeded"
+    result_path.write_text(json.dumps(raw), encoding="utf-8")
+    finish_job(
+        claimed.run_id,
+        status="succeeded",
+        returncode=0,
+        finished_at="2026-09-15T01:05:00+00:00",
+        duration_seconds=300.0,
+        stdout_path=claimed.stdout_path or "",
+        stderr_path=claimed.stderr_path or "",
+        command_json="[]",
+        db_path=db_path,
+    )
+
+    new_rows = publish(db_path=db_path, output_path=out_path)
+    assert [r["status"] for r in new_rows] == ["succeeded"]
+    # 시도마다 다른 키로 남아야 웹이 두 시도의 turn을 한 실행으로 합치지 않는다.
+    assert new_rows[0]["run_id"] == f"{job.run_id}#2"
+
+    with out_path.open(encoding="utf-8", newline="") as f:
+        rows = list(csv.DictReader(f))
+    assert [(r["run_id"], r["status"]) for r in rows] == [
+        (job.run_id, "timeout"),
+        (f"{job.run_id}#2", "succeeded"),
+    ]
+
+    # 같은 상태를 다시 게시하지 않는다(멱등).
+    assert publish(db_path=db_path, output_path=out_path) == []

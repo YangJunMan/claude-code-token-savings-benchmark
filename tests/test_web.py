@@ -97,11 +97,17 @@ def test_app_js_summarizes_sample_csv_correctly():
     assert base["avgTurns"] == pytest.approx(15.0)
     assert base["passRate"] == pytest.approx(0.5)
 
+    assert base["totalCount"] == 2
+
+    # 이 조건의 유일한 실행은 status=failed다. 중간에 끊긴 실행의 비용·turn은
+    # 그 조건이 쓰는 양이 아니므로 평균에서 빠진다 — 대신 전체 건수로는 남아서
+    # 표에서 조건이 조용히 사라지지 않는다.
     be_brief = summary["be-brief"]
-    assert be_brief["runCount"] == 1
-    # num_turns가 누락이면 평균 계산에서 제외되고 0으로 취급되지 않는다.
+    assert be_brief["runCount"] == 0
+    assert be_brief["totalCount"] == 1
+    assert be_brief["avgCost"] is None
     assert be_brief["avgTurns"] is None
-    assert be_brief["passRate"] == pytest.approx(1.0)
+    assert be_brief["passRate"] is None
 
 
 def _row(**overrides) -> str:

@@ -37,6 +37,7 @@ from token_bench.activity_log import (
 )
 from token_bench.diagnostics import update_manifest
 from token_bench.job_store import JobRecord, list_jobs
+from token_bench.publish import _read_published, attempt_run_id
 from token_bench.results import ResultsError, load as load_result
 from token_bench.workspace import PROMPT_PRESETS
 
@@ -46,7 +47,10 @@ DEFAULT_ACTIVITY_PATH = Path("data/activity-log.csv")
 DEFAULT_SUMMARY_PATH = Path("data/run-summary.csv")
 DEFAULT_COMPARISON_PATH = Path("data/comparison.csv")
 
-PUBLISHABLE_STATUSES = frozenset({"succeeded", "failed"})
+# timeout은 가장 원인을 알아야 하는 실패다 — 무한 반복에 빠진 실행이 여기
+# 빠지면 CSV에도 진단 레포트에도 남지 않는다(사용자 결정). measurable=0으로
+# 기록되므로 comparison.csv의 평균에는 들어가지 않는다.
+PUBLISHABLE_STATUSES = frozenset({"succeeded", "failed", "timeout"})
 BASELINE_CONDITION = "BASE"
 
 # 웹의 "실행 상세" 탭은 activity-log.csv의 condition 문자열 그대로로 그룹을
@@ -99,12 +103,6 @@ SUMMARY_COLUMNS = (
 )
 
 
-def _read_published_run_ids(path: Path) -> set[str]:
-    if not path.is_file():
-        return set()
-    with path.open("r", encoding="utf-8", newline="") as f:
-        reader = csv.DictReader(f)
-        return {row["run_id"] for row in reader if row.get("run_id")}
 
 
 def _final_result_event(stdout_path: str | None) -> dict:
@@ -299,7 +297,10 @@ def collect(
 ) -> dict:
     """아직 게시되지 않은 succeeded/failed 작업을 턴 단위로 CSV에 append한다."""
 
-    already_published = _read_published_run_ids(summary_path)
+    # run-summary.csv는 status를 terminal_reason 열에 쓴다.
+    published_keys, published_pairs = _read_published(
+        summary_path, status_column="terminal_reason"
+    )
     jobs = list_jobs(db_path=db_path)
     gaps = _washout_gaps(jobs)
 
@@ -307,7 +308,7 @@ def collect(
     new_summary_rows: list[list] = []
 
     for job in jobs:
-        if job.run_id in already_published or job.status not in PUBLISHABLE_STATUSES:
+        if (job.run_id, job.status) in published_pairs or job.status not in PUBLISHABLE_STATUSES:
             continue
 
         result_path = Path(job.workdir).parent / "result.json"
@@ -320,9 +321,17 @@ def collect(
         run_date = (job.started_at or job.enqueued_at)[:10]
         condition = _legacy_condition(job.condition_id)
 
-        new_activity_rows.extend(activity_rows(run_date, job.run_id, condition, turns))
+        # 재시도는 같은 run_id를 다시 쓴다. 활동 로그와 요약에 같은 키로
+        # 두 번 들어가면 웹이 두 시도의 turn을 한 실행으로 합친다.
+        row_run_id = attempt_run_id(job.run_id, published_keys)
+        published_keys.add(row_run_id)
+
+        new_activity_rows.extend(activity_rows(run_date, row_run_id, condition, turns))
         if job.stdout_path:
-            update_manifest(job.run_id, job.stdout_path, diagnostics_path)
+            update_manifest(
+                row_run_id, job.stdout_path, diagnostics_path,
+                status=job.status, condition_id=job.condition_id,
+            )
 
         measurable = job.status == "succeeded" and is_measurable(turns)
         shares = reconcile(turns) if turns else {
@@ -336,7 +345,7 @@ def collect(
         critical_pass = "" if not evaluation_ran else ("pass" if evaluation_passed else "fail")
 
         new_summary_rows.append([
-            run_date, job.run_id, condition, _prompt_id(job.snapshot_path),
+            run_date, row_run_id, condition, _prompt_id(job.snapshot_path),
             result.cost_usd.get("value"),
             quality_score,
             critical_pass,

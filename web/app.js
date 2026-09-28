@@ -880,7 +880,7 @@ function drawReport(data) {
      "아직 못 찾았다"인지 "없었다"인지 구분이 안 된다. */
   const causeBlock = `<h4 class="tight">실제로 무슨 일이 있었나</h4>
     ${diag
-      ? `<ul class="notes">${diag.events.map((e) => `<li>${e.summary}</li>`).join("")}</ul>`
+      ? `<ul class="notes">${diag.events.map((e) => `<li>${escapeHtml(e.summary)}</li>`).join("")}</ul>`
       : `<p class="muted">테스트 실패·재수정, 같은 파일 재확인 같은 사건은 감지되지 않았습니다
          — turn 수·토큰 차이는 정상적인 실행 편차로 보입니다.</p>`}`;
   box.innerHTML = base
@@ -1309,20 +1309,36 @@ function summarizeByCondition(records) {
     byCondition.get(r.condition_id).push(r);
   }
   return [...byCondition.entries()].map(([conditionId, rows]) => {
-    const evaluated = rows.filter((r) => r.evaluation_ran === "True");
+    /* 평균은 succeeded 실행만으로 낸다. failed·timeout은 중간에 끊긴 실행이라
+       비용·turn·토큰이 "그 조건이 쓰는 양"이 아니다 — 섞으면 조건 비교가
+       무너진다(d5e98922가 활동 로그 쪽에서 고친 것과 같은 종류의 버그).
+       건수는 전체를 함께 보여 준다: 5번 중 5번 timeout인 조건이 평균만 비어
+       표에서 조용히 사라지면 안 된다. */
+    const ok = rows.filter((r) => r.status === "succeeded");
+    const evaluated = ok.filter((r) => r.evaluation_ran === "True");
     const passed = evaluated.filter((r) => r.evaluation_passed === "True");
     return {
       conditionId,
-      runCount: rows.length,
-      avgCost: meanPresent(rows.map((r) => orNull(r.cost_usd))),
-      avgTurns: meanPresent(rows.map((r) => orNull(r.num_turns))),
-      avgOutputTokens: meanPresent(rows.map((r) => orNull(r.output_tokens))),
-      avgCacheReadTokens: meanPresent(rows.map((r) => orNull(r.cache_read_input_tokens))),
+      runCount: ok.length,
+      totalCount: rows.length,
+      avgCost: meanPresent(ok.map((r) => orNull(r.cost_usd))),
+      avgTurns: meanPresent(ok.map((r) => orNull(r.num_turns))),
+      avgOutputTokens: meanPresent(ok.map((r) => orNull(r.output_tokens))),
+      avgCacheReadTokens: meanPresent(ok.map((r) => orNull(r.cache_read_input_tokens))),
       passRate: evaluated.length === 0 ? null : passed.length / evaluated.length,
       evaluatedCount: evaluated.length,
     };
   });
 }
+
+/* run-diagnostics.json의 summary는 LLM이 쓴 자유 문장이고, 이 페이지는 GitHub
+   Pages로 공개된다. innerHTML에 그대로 넣으면 그 문장이 마크업으로 해석된다. */
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  })[c]);
+}
+
 
 function cell(row, text) {
   const td = row.insertCell();
@@ -1346,7 +1362,9 @@ function drawBench(records) {
   for (const s of summarizeByCondition(records)) {
     const row = summaryBody.insertRow();
     cell(row, s.conditionId).style.textAlign = "left";
-    cell(row, String(s.runCount));
+    cell(row, s.runCount === s.totalCount
+      ? String(s.runCount)
+      : `${s.runCount} / ${s.totalCount}`);
     cell(row, fixed(s.avgCost, 3));
     cell(row, fixed(s.avgTurns, 1));
     cell(row, fixed(s.avgOutputTokens, 0));
