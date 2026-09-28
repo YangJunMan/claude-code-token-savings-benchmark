@@ -1,0 +1,267 @@
+{
+  "9f0f22d5ded6-be-brief__r1": {
+    "summary": "turn 14: 테스트 실패 (test_existing_behavior) — 테스트 실패 / turn 16: 앞서 실패했던 테스트(test_existing_behavior) 수정 후 통과",
+    "events": [
+      {
+        "turn": 14,
+        "kind": "test_failure",
+        "summary": "turn 14: 테스트 실패 (test_existing_behavior) — 테스트 실패"
+      },
+      {
+        "turn": 16,
+        "kind": "test_recovered",
+        "summary": "turn 16: 앞서 실패했던 테스트(test_existing_behavior) 수정 후 통과"
+      }
+    ]
+  },
+  "9f0f22d5ded6-headroom__r1": {
+    "summary": "turn 14: 테스트 실패 (test_existing_behavior) — 테스트 실패 / turn 18: 앞서 실패했던 테스트(test_existing_behavior) 수정 후 통과 / turn 30: 테스트 실패 (test_cancel_and_reap) — AssertionError: 2 != 3 / turn 34: 앞서 실패했던 테스트(test_cancel_and_reap) 수정 후 통과 / turn 43: test_state_machine.py 다시 읽음(처음 turn 41) — 앞서 읽은 내용으로 부족했거나 다시 확인이 필요했다는 뜻",
+    "events": [
+      {
+        "turn": 14,
+        "kind": "test_failure",
+        "summary": "turn 14: 테스트 실패 (test_existing_behavior) — 테스트 실패"
+      },
+      {
+        "turn": 18,
+        "kind": "test_recovered",
+        "summary": "turn 18: 앞서 실패했던 테스트(test_existing_behavior) 수정 후 통과"
+      },
+      {
+        "turn": 30,
+        "kind": "test_failure",
+        "summary": "turn 30: 테스트 실패 (test_cancel_and_reap) — AssertionError: 2 != 3"
+      },
+      {
+        "turn": 34,
+        "kind": "test_recovered",
+        "summary": "turn 34: 앞서 실패했던 테스트(test_cancel_and_reap) 수정 후 통과"
+      },
+      {
+        "turn": 43,
+        "kind": "repeated_read",
+        "summary": "turn 43: test_state_machine.py 다시 읽음(처음 turn 41) — 앞서 읽은 내용으로 부족했거나 다시 확인이 필요했다는 뜻"
+      }
+    ]
+  },
+  "3239ee90bd7d-be-brief__r1": {
+    "summary": "turn 4: models.py 다시 읽음(처음 turn 2) — 앞서 읽은 내용으로 부족했거나 다시 확인이 필요했다는 뜻 / turn 15: 테스트 실패 (test_repository_keeps_acceptance_contract_visible) — 테스트 실패 / turn 20: store.py 다시 읽음(처음 turn 2) — 앞서 읽은 내용으로 부족했거나 다시 확인이 필요했다는 뜻 / turn 23: 앞서 실패했던 테스트(test_repository_keeps_acceptance_contract_visible) 수정 후 통과",
+    "events": [
+      {
+        "turn": 4,
+        "kind": "repeated_read",
+        "summary": "turn 4: models.py 다시 읽음(처음 turn 2) — 앞서 읽은 내용으로 부족했거나 다시 확인이 필요했다는 뜻"
+      },
+      {
+        "turn": 15,
+        "kind": "test_failure",
+        "summary": "turn 15: 테스트 실패 (test_repository_keeps_acceptance_contract_visible) — 테스트 실패"
+      },
+      {
+        "turn": 20,
+        "kind": "repeated_read",
+        "summary": "turn 20: store.py 다시 읽음(처음 turn 2) — 앞서 읽은 내용으로 부족했거나 다시 확인이 필요했다는 뜻"
+      },
+      {
+        "turn": 23,
+        "kind": "test_recovered",
+        "summary": "turn 23: 앞서 실패했던 테스트(test_repository_keeps_acceptance_contract_visible) 수정 후 통과"
+      }
+    ]
+  },
+  "3239ee90bd7d-headroom__r1": {
+    "summary": "turn 13: 테스트 실패 (test_existing_behavior) — 테스트 실패 / turn 15: 앞서 실패했던 테스트(test_existing_behavior) 수정 후 통과",
+    "events": [
+      {
+        "turn": 13,
+        "kind": "test_failure",
+        "summary": "turn 13: 테스트 실패 (test_existing_behavior) — 테스트 실패"
+      },
+      {
+        "turn": 15,
+        "kind": "test_recovered",
+        "summary": "turn 15: 앞서 실패했던 테스트(test_existing_behavior) 수정 후 통과"
+      }
+    ]
+  },
+  "3239ee90bd7d-rtk__r1": {
+    "summary": "turn 25: 테스트 실패 (test_claim_orders_by_priority_then_fifo) — 테스트 실패 / turn 27: 앞서 실패했던 테스트(test_claim_orders_by_priority_then_fifo) 수정 후 통과 / turn 29: deployment.yaml 다시 읽음(처음 turn 4) — 앞서 읽은 내용으로 부족했거나 다시 확인이 필요했다는 뜻",
+    "events": [
+      {
+        "turn": 25,
+        "kind": "test_failure",
+        "summary": "turn 25: 테스트 실패 (test_claim_orders_by_priority_then_fifo) — 테스트 실패"
+      },
+      {
+        "turn": 27,
+        "kind": "test_recovered",
+        "summary": "turn 27: 앞서 실패했던 테스트(test_claim_orders_by_priority_then_fifo) 수정 후 통과"
+      },
+      {
+        "turn": 29,
+        "kind": "repeated_read",
+        "summary": "turn 29: deployment.yaml 다시 읽음(처음 turn 4) — 앞서 읽은 내용으로 부족했거나 다시 확인이 필요했다는 뜻"
+      }
+    ]
+  },
+  "07dba7ede7b1-be-brief__r1": {
+    "summary": "turn 25: 테스트 실패 (test_repository_keeps_acceptance_contract_visible) — AssertionError: <JobState.QUEUED: 'queued'> != <JobState.DEAD: 'dead'> / turn 27: 앞서 실패했던 테스트(test_repository_keeps_acceptance_contract_visible) 수정 후 통과",
+    "events": [
+      {
+        "turn": 25,
+        "kind": "test_failure",
+        "summary": "turn 25: 테스트 실패 (test_repository_keeps_acceptance_contract_visible) — AssertionError: <JobState.QUEUED: 'queued'> != <JobState.DEAD: 'dead'>"
+      },
+      {
+        "turn": 27,
+        "kind": "test_recovered",
+        "summary": "turn 27: 앞서 실패했던 테스트(test_repository_keeps_acceptance_contract_visible) 수정 후 통과"
+      }
+    ]
+  },
+  "07dba7ede7b1-headroom__r1": {
+    "summary": "turn 5: 001_initial.sql 다시 읽음(처음 turn 4) — 앞서 읽은 내용으로 부족했거나 다시 확인이 필요했다는 뜻 / turn 29: 테스트 실패 (test_repository_keeps_acceptance_contract_visible) — 테스트 실패 / turn 30: 001_initial.sql 다시 읽음(처음 turn 4) — 앞서 읽은 내용으로 부족했거나 다시 확인이 필요했다는 뜻 / turn 32: 앞서 실패했던 테스트(test_repository_keeps_acceptance_contract_visible) 수정 후 통과",
+    "events": [
+      {
+        "turn": 5,
+        "kind": "repeated_read",
+        "summary": "turn 5: 001_initial.sql 다시 읽음(처음 turn 4) — 앞서 읽은 내용으로 부족했거나 다시 확인이 필요했다는 뜻"
+      },
+      {
+        "turn": 29,
+        "kind": "test_failure",
+        "summary": "turn 29: 테스트 실패 (test_repository_keeps_acceptance_contract_visible) — 테스트 실패"
+      },
+      {
+        "turn": 30,
+        "kind": "repeated_read",
+        "summary": "turn 30: 001_initial.sql 다시 읽음(처음 turn 4) — 앞서 읽은 내용으로 부족했거나 다시 확인이 필요했다는 뜻"
+      },
+      {
+        "turn": 32,
+        "kind": "test_recovered",
+        "summary": "turn 32: 앞서 실패했던 테스트(test_repository_keeps_acceptance_contract_visible) 수정 후 통과"
+      }
+    ]
+  },
+  "07dba7ede7b1-rtk__r1": {
+    "summary": "turn 9: store.py 다시 읽음(처음 turn 2) — 앞서 읽은 내용으로 부족했거나 다시 확인이 필요했다는 뜻 / turn 13: 테스트 실패 (test_sequential_duplicate_returns_existing_job) — 테스트 실패 / turn 17: 앞서 실패했던 테스트(test_sequential_duplicate_returns_existing_job) 수정 후 통과",
+    "events": [
+      {
+        "turn": 9,
+        "kind": "repeated_read",
+        "summary": "turn 9: store.py 다시 읽음(처음 turn 2) — 앞서 읽은 내용으로 부족했거나 다시 확인이 필요했다는 뜻"
+      },
+      {
+        "turn": 13,
+        "kind": "test_failure",
+        "summary": "turn 13: 테스트 실패 (test_sequential_duplicate_returns_existing_job) — 테스트 실패"
+      },
+      {
+        "turn": 17,
+        "kind": "test_recovered",
+        "summary": "turn 17: 앞서 실패했던 테스트(test_sequential_duplicate_returns_existing_job) 수정 후 통과"
+      }
+    ]
+  },
+  "c075bdeb21ad-caveman-full__r1": {
+    "summary": "turn 13: 테스트 실패 (test_submit_and_get_job) — 테스트 실패 / turn 15: 앞서 실패했던 테스트(test_submit_and_get_job) 수정 후 통과 / turn 46: store.py 다시 읽음(처음 turn 3) — 앞서 읽은 내용으로 부족했거나 다시 확인이 필요했다는 뜻",
+    "events": [
+      {
+        "turn": 13,
+        "kind": "test_failure",
+        "summary": "turn 13: 테스트 실패 (test_submit_and_get_job) — 테스트 실패"
+      },
+      {
+        "turn": 15,
+        "kind": "test_recovered",
+        "summary": "turn 15: 앞서 실패했던 테스트(test_submit_and_get_job) 수정 후 통과"
+      },
+      {
+        "turn": 46,
+        "kind": "repeated_read",
+        "summary": "turn 46: store.py 다시 읽음(처음 turn 3) — 앞서 읽은 내용으로 부족했거나 다시 확인이 필요했다는 뜻"
+      }
+    ]
+  },
+  "5f055aa3a436-caveman-full__r1": {
+    "summary": "turn 5: models.py 다시 읽음(처음 turn 3) — 앞서 읽은 내용으로 부족했거나 다시 확인이 필요했다는 뜻 / turn 19: 테스트 실패 (test_repository_keeps_acceptance_contract_visible) — 테스트 실패 / turn 22: 앞서 실패했던 테스트(test_repository_keeps_acceptance_contract_visible) 수정 후 통과",
+    "events": [
+      {
+        "turn": 5,
+        "kind": "repeated_read",
+        "summary": "turn 5: models.py 다시 읽음(처음 turn 3) — 앞서 읽은 내용으로 부족했거나 다시 확인이 필요했다는 뜻"
+      },
+      {
+        "turn": 19,
+        "kind": "test_failure",
+        "summary": "turn 19: 테스트 실패 (test_repository_keeps_acceptance_contract_visible) — 테스트 실패"
+      },
+      {
+        "turn": 22,
+        "kind": "test_recovered",
+        "summary": "turn 22: 앞서 실패했던 테스트(test_repository_keeps_acceptance_contract_visible) 수정 후 통과"
+      }
+    ]
+  },
+  "bcf56e7cb29d-base__r1": {
+    "summary": "turn 26: 테스트 실패 (test_store_migration) — AssertionError: 1 != 2 / turn 28: 테스트 실패 (test_concurrency) — Exception in thread Thread-33: / turn 31: store.py 다시 읽음(처음 turn 2) — 앞서 읽은 내용으로 부족했거나 다시 확인이 필요했다는 뜻 / turn 34: 앞서 실패했던 테스트(test_concurrency) 수정 후 통과",
+    "events": [
+      {
+        "turn": 26,
+        "kind": "test_failure",
+        "summary": "turn 26: 테스트 실패 (test_store_migration) — AssertionError: 1 != 2"
+      },
+      {
+        "turn": 28,
+        "kind": "test_failure",
+        "summary": "turn 28: 테스트 실패 (test_concurrency) — Exception in thread Thread-33:"
+      },
+      {
+        "turn": 31,
+        "kind": "repeated_read",
+        "summary": "turn 31: store.py 다시 읽음(처음 turn 2) — 앞서 읽은 내용으로 부족했거나 다시 확인이 필요했다는 뜻"
+      },
+      {
+        "turn": 34,
+        "kind": "test_recovered",
+        "summary": "turn 34: 앞서 실패했던 테스트(test_concurrency) 수정 후 통과"
+      }
+    ]
+  },
+  "bcf56e7cb29d-be-brief__r1": {
+    "summary": "turn 36: admission.py 다시 읽음(처음 turn 2) — 앞서 읽은 내용으로 부족했거나 다시 확인이 필요했다는 뜻",
+    "events": [
+      {
+        "turn": 36,
+        "kind": "repeated_read",
+        "summary": "turn 36: admission.py 다시 읽음(처음 turn 2) — 앞서 읽은 내용으로 부족했거나 다시 확인이 필요했다는 뜻"
+      }
+    ]
+  },
+  "bcf56e7cb29d-headroom__r1": {
+    "summary": "turn 36: deployment.yaml 다시 읽음(처음 turn 3) — 앞서 읽은 내용으로 부족했거나 다시 확인이 필요했다는 뜻",
+    "events": [
+      {
+        "turn": 36,
+        "kind": "repeated_read",
+        "summary": "turn 36: deployment.yaml 다시 읽음(처음 turn 3) — 앞서 읽은 내용으로 부족했거나 다시 확인이 필요했다는 뜻"
+      }
+    ]
+  },
+  "bcf56e7cb29d-caveman-full__r1": {
+    "summary": "turn 29: 테스트 실패 (test_fresh_database_creates_all_supporting_tables) — AssertionError: 0.0 != 100.0 within 6 places (100.0 difference) / turn 33: 앞서 실패했던 테스트(test_fresh_database_creates_all_supporting_tables) 수정 후 통과",
+    "events": [
+      {
+        "turn": 29,
+        "kind": "test_failure",
+        "summary": "turn 29: 테스트 실패 (test_fresh_database_creates_all_supporting_tables) — AssertionError: 0.0 != 100.0 within 6 places (100.0 difference)"
+      },
+      {
+        "turn": 33,
+        "kind": "test_recovered",
+        "summary": "turn 33: 앞서 실패했던 테스트(test_fresh_database_creates_all_supporting_tables) 수정 후 통과"
+      }
+    ]
+  }
+}
