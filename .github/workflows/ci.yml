@@ -48,6 +48,9 @@ jobs:
       - name: Run unit and doc tests
         run: python -m pytest tests/ -v
       # 공개 저장소이므로 API key와 로컬 절대경로가 섞여 들어가면 즉시 실패시킨다.
+      # `sk-ant-oat`는 `claude setup-token`이 발급하는 장기 구독 토큰이고
+      # `sk-ant-admin`은 Admin API key다. 둘 다 api03 키와 같은 등급의 비밀인데
+      # 예전 패턴은 api03만 봤다.
       - name: Guard against leaked secrets and local paths
         if: runner.os == 'Linux'
-        run: git grep -nE 'sk-ant-api03-|ANTHROPIC_API_KEY=.+|/Users/yang/' -- . ':!.github/workflows/ci.yml' && exit 1 || exit 0
+        run: git grep -nE 'sk-ant-(api03|oat|admin)-|ANTHROPIC_API_KEY=.+|CLAUDE_CODE_OAUTH_TOKEN=.+|/Users/yang/' -- . ':!.github/workflows/ci.yml' && exit 1 || exit 0

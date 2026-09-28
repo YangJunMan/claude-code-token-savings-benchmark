@@ -312,6 +312,18 @@ def _handle_log(query: dict[str, list[str]], *, db_path: Path) -> dict:
     return {"run_id": run_id, "status": job.status, "events": tail_log(log_path, limit=20)}
 
 
+LOCAL_ORIGIN_HOSTS = frozenset({"localhost", "127.0.0.1", "[::1]", "::1"})
+
+
+def _is_local_origin(origin: str) -> bool:
+    """브라우저가 보낸 Origin이 이 컴퓨터의 로컬 주소인지 본다."""
+
+    parts = urlsplit(origin)
+    if parts.scheme not in ("http", "https"):
+        return False
+    return (parts.hostname or "") in LOCAL_ORIGIN_HOSTS
+
+
 def make_handler(
     *, conditions_path: Path, db_path: Path, auto_worker: AutoWorker
 ) -> type[BaseHTTPRequestHandler]:
@@ -323,10 +335,13 @@ def make_handler(
         def _send_cors_headers(self) -> None:
             # web/run.html은 정적 파일 서버(예: :8765)에서 열리고 이 API는
             # 다른 포트(:8787)에서 뜬다 — 브라우저 기준 서로 다른 출처라
-            # CORS 헤더 없이는 fetch가 막힌다. 둘 다 로컬 전용 도구이므로
-            # 출처를 반사(echo)해 허용한다.
-            origin = self.headers.get("Origin", "*")
-            self.send_header("Access-Control-Allow-Origin", origin)
+            # CORS 헤더 없이는 fetch가 막힌다. 로컬 출처만 허용한다: 이 API는
+            # 인증이 없고 실행 시작·작업 삭제·파일 쓰기를 모두 받으므로, 출처를
+            # 그대로 반사하면 사용자가 열어 둔 아무 웹페이지나 서버가 켜져 있는
+            # 동안 이 엔드포인트를 호출할 수 있다.
+            origin = self.headers.get("Origin")
+            if origin and _is_local_origin(origin):
+                self.send_header("Access-Control-Allow-Origin", origin)
             self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
             self.send_header("Access-Control-Allow-Headers", "Content-Type")
 
