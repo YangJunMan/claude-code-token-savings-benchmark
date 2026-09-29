@@ -56,8 +56,12 @@
   `estimate --only "$CONDITION" --preset "$PRESET"`으로 그 실험 하나만 만든다.
   도구 설치 **전에** 건너뛸지 결정하므로 runner 시간을 낭비하지 않는다.
 - 조건 선택은 해당 프리셋에서 `succeeded`가 가장 적은 조건이다. 동수면
-  `conditions.json` 선언 순서. 실행이 실패해 한 조건만 표본이 모자라도 다음 차례에
-  그 조건이 다시 선택되므로 보정 로직이 필요 없다.
+  `conditions.json` 선언 순서. `next-target`은 하나가 아니라 **순서 전체**를 주고,
+  `run` job이 `preflight`로 앞에서부터 실제로 돌 수 있는 첫 조건을 고른다.
+  도구가 사라진 조건은 영구히 표본이 가장 적은 상태로 남아 매번 다시 뽑히고, 그러면
+  나머지 조건의 수집이 통째로 멈춘다(2026-09-29 `headroom` 실측: 4회 연속 실패,
+  그 사이 다른 조건은 한 번도 돌지 못했다). 건너뛴 조건은 `Report diagnosis drift`가
+  issue로 알린다.
 - 전환은 **모든 조건**이 임계를 넘어야 일어난다. 하나라도 모자라면 넘어가지 않는다 —
   조건 간 비교가 목적이므로 표본이 고르지 않은 채로 과제를 바꾸면 그 프리셋의 비교가
   미완성으로 남는다. 임계는 `collect.RUNS_PER_PRESET`, 순서는 `PRESET_SEQUENCE`.
@@ -66,7 +70,8 @@
   대기하고, 그 사이 또 cron이 뜨면 대기 중인 쪽이 취소된다. 결과적으로 "바쁘면
   그 시간은 건너뜀"이다.
 - 도구 버전을 env에 고정한다: `CLAUDE_CODE_VERSION`, `RTK_VERSION`,
-  `CAVEMAN_SHA`. 자동 업그레이드는 없다.
+  `HEADROOM_VERSION`, `CAVEMAN_SHA`. 자동 업그레이드는 없다. 조건이 요구하는
+  도구를 하나라도 빠뜨리면 그 조건은 runner에서 계속 실패한다.
 - **`ISOLATION: project-settings`를 고정한다.** 지정하지 않으면 격리 모드가 배치
   내용에서 유도되어, 조건 하나씩 돌리는 구조에서는 `base`가 `safe-mode`,
   `rtk`·`caveman-full`이 `project-settings`로 갈린다 — 처치 말고도 달라지는 것이

@@ -37,6 +37,7 @@ from token_bench.collect import (
     DEFAULT_COMPARISON_PATH,
     DEFAULT_SUMMARY_PATH,
     collect as collect_activity,
+    condition_priority,
     next_condition,
     next_preset,
 )
@@ -909,10 +910,16 @@ def main(argv: list[str] | None = None) -> int:
         return _run_result(args.run_id, db_path=args.db)
     if args.command == "next-target":
         preset = next_preset(args.summary, conditions_path=args.conditions)
-        condition = next_condition(
+        order = condition_priority(
             args.summary, preset=preset, conditions_path=args.conditions
         )
-        print(json.dumps({"preset": preset, "condition_id": condition}))
+        # `condition_ids`는 표본이 적은 순서다. 호출자는 앞에서부터 실제로 돌 수
+        # 있는 첫 조건을 골라야 한다 — 도구가 없는 조건이 전체를 막지 않는다.
+        print(json.dumps({
+            "preset": preset,
+            "condition_id": order[0],
+            "condition_ids": order,
+        }))
         return 0
 
     if args.command == "publish":

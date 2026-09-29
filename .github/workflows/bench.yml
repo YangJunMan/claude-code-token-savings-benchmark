@@ -43,6 +43,7 @@ env:
   # 것이므로, 올릴 때는 결과 CSV의 claude_version·tool fingerprint로 구분한다.
   CLAUDE_CODE_VERSION: 2.1.283
   RTK_VERSION: 0.46.0
+  HEADROOM_VERSION: 0.37.0
   CAVEMAN_SHA: 15581d14007fd01fb3f132016741962f34936ca2
   TIMEOUT_SECONDS: 1800
   # 시리즈 전체가 같은 격리로 돌아야 한다. 과거 데이터(5조건 한 배치)와 같은 값.
@@ -55,7 +56,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       preset: ${{ steps.decide.outputs.preset }}
-      condition: ${{ steps.decide.outputs.condition }}
+      candidates: ${{ steps.decide.outputs.candidates }}
       run: ${{ steps.decide.outputs.run }}
     steps:
       - uses: actions/checkout@v4
@@ -83,15 +84,18 @@ jobs:
           target=$(python3 -m token_bench next-target)
           echo "$target"
           preset=$(printf '%s' "$target" | python3 -c 'import json,sys; print(json.load(sys.stdin)["preset"])')
-          condition=$(printf '%s' "$target" | python3 -c 'import json,sys; print(json.load(sys.stdin)["condition_id"])')
+          # 표본이 적은 순서 전체를 넘긴다. run job이 도구 설치 후 실제로 돌 수
+          # 있는 첫 조건을 고른다 — 도구가 사라진 조건 하나가 나머지 수집을 막지
+          # 않게 한다.
+          candidates=$(printf '%s' "$target" | python3 -c 'import json,sys; print(" ".join(json.load(sys.stdin)["condition_ids"]))')
           echo "preset=$preset" >> "$GITHUB_OUTPUT"
-          echo "condition=$condition" >> "$GITHUB_OUTPUT"
+          echo "candidates=$candidates" >> "$GITHUB_OUTPUT"
           if [ "$preset" = "large" ] && [ "$FIRED_CRON" = "$HALF_HOUR_CRON" ]; then
             echo "run=false" >> "$GITHUB_OUTPUT"
             echo "large 단계는 실험당 3시간마다 돈다 — 이 tick은 건너뛴다."
           else
             echo "run=true" >> "$GITHUB_OUTPUT"
-            echo "이번 실험: preset=$preset condition=$condition"
+            echo "이번 실험: preset=$preset 후보=$candidates"
           fi
 
   run:
@@ -141,6 +145,14 @@ jobs:
           install -m 755 "$(find /tmp -maxdepth 2 -type f -name rtk | head -1)" /usr/local/bin/rtk
           rtk --version
 
+      - name: Install headroom
+        run: |
+          set -euo pipefail
+          # headroom 조건은 proxy로 이 실행 파일을 띄운다. PyPI 배포명은
+          # headroom-ai이고 실행 파일 이름은 headroom이다.
+          python3 -m pip install --quiet "headroom-ai==${HEADROOM_VERSION}"
+          headroom --version
+
       - name: Install caveman plugin
         run: |
           set -euo pipefail
@@ -159,16 +171,32 @@ jobs:
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           PRESET: ${{ needs.plan.outputs.preset }}
-          CONDITION: ${{ needs.plan.outputs.condition }}
+          CANDIDATES: ${{ needs.plan.outputs.candidates }}
           MODE: ${{ inputs.mode || 'full' }}
         run: |
           set -euo pipefail
+          # 표본이 적은 순서대로 보며, 이 runner에서 실제로 돌 수 있는 첫 조건을
+          # 쓴다. preflight는 모델을 호출하지 않으므로 여기서 걸러도 비용이 없다.
+          condition=""
+          for candidate in $CANDIDATES; do
+            if python3 -m token_bench preflight --only "$candidate" >/dev/null 2>&1; then
+              condition="$candidate"
+              break
+            fi
+            echo "조건 사용 불가 — 건너뛴다: $candidate" | tee -a /tmp/diagnose.err >&2
+          done
+          if [ -z "$condition" ]; then
+            echo "돌릴 수 있는 조건이 없다." | tee -a /tmp/diagnose.err >&2
+            exit 1
+          fi
+          echo "이번 실험: preset=$PRESET condition=$condition"
+
           # `--isolation`을 고정하는 것이 중요하다. 지정하지 않으면 격리 모드가
           # 배치 내용에서 유도되어, 조건 하나씩 돌리는 지금 구조에서는 base가
           # safe-mode, rtk가 project-settings로 갈린다 — 처치 말고도 달라지는
           # 것이 생겨 조건 비교가 무너진다. 과거 데이터도 5조건 한 배치라
           # project-settings였다.
-          python3 -m token_bench estimate --only "$CONDITION" --isolation "$ISOLATION" \
+          python3 -m token_bench estimate --only "$condition" --isolation "$ISOLATION" \
             --timeout-seconds "$TIMEOUT_SECONDS" --preset "$PRESET" > /tmp/plan.json
           batch_id=$(python3 -c 'import json;print(json.load(open("/tmp/plan.json"))["batch_id"])')
           digest=$(python3 -c 'import json;print(json.load(open("/tmp/plan.json"))["digest"])')
@@ -208,7 +236,7 @@ jobs:
         run: |
           set -euo pipefail
           test -f /tmp/diagnose.err || exit 0
-          if ! grep -qE "사용 불가|진단 실패|진단 건너뜀|모델 목록을 읽을 수 없다" /tmp/diagnose.err; then
+          if ! grep -qE "사용 불가|진단 실패|진단 건너뜀|모델 목록을 읽을 수 없다|돌릴 수 있는 조건이 없다" /tmp/diagnose.err; then
             exit 0
           fi
           title="진단 모델 점검 필요"

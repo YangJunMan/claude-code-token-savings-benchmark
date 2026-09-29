@@ -144,3 +144,22 @@ def test_estimate_accepts_an_explicit_isolation_mode():
         import json
         seen.add(json.loads(out.stdout)["isolation"])
     assert seen == {"project-settings"}
+
+
+def test_priority_lists_every_condition_least_sampled_first(tmp_path):
+    """조건 하나가 영구히 깨져도 나머지 수집이 멈추지 않으려면, 하나가 아니라
+    순서 전체가 필요하다(2026-09-29 headroom 실측)."""
+    from token_bench.collect import condition_priority
+
+    counts = {label: 5 for label in LABELS}
+    counts["HEADROOM"] = 0
+    counts["RTK"] = 2
+    path = _summary(tmp_path / "run-summary.csv", _runs("small", per_condition=counts))
+
+    order = condition_priority(path, preset="small", conditions_path=CONDITIONS)
+
+    assert order[0] == "headroom"
+    assert order[1] == "rtk"
+    assert set(order) == {"base", "be-brief", "headroom", "caveman-full", "rtk"}
+    # 첫 조건은 next_condition과 같아야 한다.
+    assert order[0] == next_condition(path, preset="small", conditions_path=CONDITIONS)
