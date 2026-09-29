@@ -11,8 +11,8 @@ timeout까지 끌렸는지)를 transcript에서 읽어 사람이 읽을 수 있�
 `ANTHROPIC_API_KEY`가 환경에 있으면 `preflight`가 구독 실행을 거부하는 문제도
 애초에 생기지 않는다.
 
-비용은 두 가지로 누른다. 모델은 가장 싼 축(`haiku`)을 쓰고, raw transcript
-(1MB ≈ 250K 토큰, Haiku의 200K context를 넘는다) 대신 turn별 도구 호출 요약만
+비용은 두 가지로 누른다. 모델은 최신 Sonnet의 가장 낮은 effort(`--effort low`)로 고정하고, raw transcript
+(1MB ≈ 250K 토큰, 200K context를 넘는다) 대신 turn별 도구 호출 요약만
 넣는다.
 
 자격증명이 없거나 호출이 실패하면 manifest를 건드리지 않고 넘어간다 — 진단은
@@ -30,13 +30,14 @@ from pathlib import Path
 from token_bench import claude_code
 from token_bench.claude_code import CLAUDE_BIN
 
-# `claude --model`은 계열 alias를 받는다("haiku", "sonnet", ...). alias는 CLI가
-# 그때그때 최신 세대로 풀어 주므로, 특정 id를 박는 것보다 세대 교체에 강하다.
-# 첫 alias가 막히면 다음 것으로 한 번 더 시도한다 — 목록은 싼 계열 먼저다.
-DEFAULT_MODEL = os.environ.get("TOKEN_BENCH_DIAGNOSIS_MODEL", "haiku")
-MODEL_PREFERENCE = ("haiku", "sonnet")
+# `claude --model sonnet`은 CLI가 그때그때 최신 Sonnet으로 풀어 주므로, 세대가
+# 바뀌어도 손댈 곳이 없다. effort는 가장 낮게 고정한다(사용자 결정).
+# TOKEN_BENCH_DIAGNOSIS_MODEL로 바꾼 alias가 막히면 MODEL_PREFERENCE로 대체한다.
+DEFAULT_MODEL = os.environ.get("TOKEN_BENCH_DIAGNOSIS_MODEL", "sonnet")
+MODEL_PREFERENCE = ("sonnet",)
+DIAGNOSIS_EFFORT = "low"
 DIAGNOSIS_TIMEOUT_SECONDS = 180
-# Haiku의 200K context와 회당 비용을 함께 누르는 상한. 넘는 만큼은 뒤를 자른다
+# 모델의 200K context와 회당 비용을 함께 누르는 상한. 넘는 만큼은 뒤를 자른다
 # — 반복·timeout은 실행 후반에 나타나므로 앞이 아니라 중간을 버린다.
 MAX_DIGEST_CHARS = 60_000
 MAX_RESULT_CHARS = 300
@@ -138,7 +139,7 @@ def _ask(model: str, prompt: str) -> str:
     """
 
     return subprocess.run(
-        [CLAUDE_BIN, "-p", "--model", model, "--safe-mode"],
+        [CLAUDE_BIN, "-p", "--model", model, "--effort", DIAGNOSIS_EFFORT, "--safe-mode"],
         input=f"{_SYSTEM}\n\n{prompt}",
         capture_output=True,
         text=True,

@@ -109,7 +109,7 @@ class ManifestTest(unittest.TestCase):
 class ModelFallbackTest(unittest.TestCase):
     """첫 alias가 막히면 선호 순서의 다음 alias로 한 번 더 시도한다."""
 
-    def _run(self, side_effect):
+    def _run(self, side_effect, **kwargs):
         with TemporaryDirectory() as tmp:
             log = Path(tmp) / "stdout.jsonl"
             _transcript(log, 2)
@@ -124,15 +124,16 @@ class ModelFallbackTest(unittest.TestCase):
                 return result
 
             with installed, auth, mock.patch.object(diagnostics, "_ask", fake_ask):
-                return diagnostics.diagnose(log), asked
+                return diagnostics.diagnose(log, **kwargs), asked
 
     def test_falls_back_to_the_next_family(self):
         ok = json.dumps({"summary": "s", "events": [{"turn": 1, "kind": "other", "summary": "e"}]})
         report, asked = self._run(
-            lambda model: RuntimeError("model not found") if model == "haiku" else ok
+            lambda model: RuntimeError("model not found") if model == "opus" else ok,
+            model="opus",
         )
         self.assertEqual(report["events"][0]["turn"], 1)
-        self.assertEqual(asked, ["haiku", "sonnet"])
+        self.assertEqual(asked, ["opus", "sonnet"])
 
     def test_every_family_failing_returns_none(self):
         report, asked = self._run(lambda model: RuntimeError("gone"))
@@ -168,11 +169,12 @@ class CommandTest(unittest.TestCase):
         """`--allowed-tools` 같은 variadic 옵션 뒤에 인자로 붙이면 삼켜진다."""
         completed = mock.Mock(stdout='{"summary":"s","events":[]}')
         with mock.patch.object(diagnostics.subprocess, "run", return_value=completed) as run:
-            diagnostics._ask("haiku", "프롬프트 본문")
+            diagnostics._ask("sonnet", "프롬프트 본문")
         args, kwargs = run.call_args
         self.assertEqual(args[0][:2], [diagnostics.CLAUDE_BIN, "-p"])
         self.assertIn("--safe-mode", args[0])
         self.assertIn("--model", args[0])
+        self.assertEqual(args[0][args[0].index("--effort") + 1], "low")
         self.assertIn("프롬프트 본문", kwargs["input"])
         self.assertTrue(kwargs["check"])
         self.assertEqual(kwargs["errors"], "replace")
