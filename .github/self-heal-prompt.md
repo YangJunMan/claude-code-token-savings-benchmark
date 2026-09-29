@@ -12,14 +12,14 @@
 
 허용되는 수정은 운영 파라미터뿐이다.
 
-- 진단 모델 id가 은퇴함 → `DEFAULT_MODEL` 또는 `MODEL_PREFERENCE`를 살아 있는
-  저렴한 계열로 조정
+- 진단 모델 alias가 은퇴함 → `DEFAULT_MODEL` 또는 `MODEL_PREFERENCE`를 살아 있는
+  Sonnet 계열로 조정
 - 고정한 도구 버전(`CLAUDE_CODE_VERSION`·`RTK_VERSION`·`CAVEMAN_SHA`)을 더 이상
   받을 수 없음 → 받을 수 있는 값으로 조정
 
 측정 로직은 바꾸지 마라. 조건 정의, 격리 모드, 게시 대상 상태(`PUBLISHABLE_STATUSES`),
 turn 추출은 실험의 정의이며 여기서 손대면 과거 데이터와 비교할 수 없게 된다.
 
-더 비싼 모델 계열로 바꾸는 것은 허용되지 않는다. `haiku`보다 비싼 것을 기본값으로
-만들지 마라. 저렴한 계열이 하나도 남지 않았다면, 그 사실을 설명하고 수정은 하지
-마라.
+진단 모델은 항상 `sonnet` alias(최신 Sonnet)와 `--effort low`다(사용자 결정). 다른
+계열로 바꾸거나 effort를 올리지 마라. Sonnet이 하나도 남지 않았다면, 그 사실을
+설명하고 수정은 하지 마라.
