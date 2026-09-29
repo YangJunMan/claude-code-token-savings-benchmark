@@ -48,6 +48,8 @@ env:
   TIMEOUT_SECONDS: 1800
   # 시리즈 전체가 같은 격리로 돌아야 한다. 과거 데이터(5조건 한 배치)와 같은 값.
   ISOLATION: project-settings
+  # 한 tick에서 조건을 바꿔 가며 시도할 최대 횟수.
+  MAX_ATTEMPTS: 2
 
 jobs:
   # 프리셋 판정은 측정과 분리한다 — 도구를 설치하기 전에 "이번 차례는 건너뛴다"를
@@ -175,42 +177,56 @@ jobs:
           MODE: ${{ inputs.mode || 'full' }}
         run: |
           set -euo pipefail
-          # 표본이 적은 순서대로 보며, 이 runner에서 실제로 돌 수 있는 첫 조건을
-          # 쓴다. preflight는 모델을 호출하지 않으므로 여기서 걸러도 비용이 없다.
-          condition=""
+          # 표본이 적은 순서대로 시도하고, 처음으로 끝까지 도는 조건을 이번 tick의
+          # 실험으로 삼는다. preflight만 보고 고르면 부족하다 — preflight는
+          # 통과하지만 proxy가 뜨지 못해 실행 중에 죽는 조건이 있고, 그러면 그
+          # 조건이 영구히 1순위로 남아 나머지 수집이 멈춘다(2026-09-29 headroom).
+          #
+          # 시도는 MAX_ATTEMPTS번까지다. 모델을 부르기 전에 죽는 실패는 구독 한도를
+          # 쓰지 않지만, 모델이 돌다가 죽는 실패는 쓴다. 무한히 시도하지 않는다.
+          attempts=0
+          ran=""
           for candidate in $CANDIDATES; do
-            if python3 -m token_bench preflight --only "$candidate" >/dev/null 2>&1; then
-              condition="$candidate"
+            [ "$attempts" -ge "$MAX_ATTEMPTS" ] && break
+            if ! python3 -m token_bench preflight --only "$candidate" >/dev/null 2>&1; then
+              echo "조건 사용 불가 — 건너뛴다: $candidate" | tee -a /tmp/diagnose.err >&2
+              continue
+            fi
+            attempts=$((attempts + 1))
+            echo "이번 실험 시도: preset=$PRESET condition=$candidate"
+
+            # `--isolation`을 고정하는 것이 중요하다. 지정하지 않으면 격리 모드가
+            # 배치 내용에서 유도되어, 조건 하나씩 돌리는 지금 구조에서는 base가
+            # safe-mode, rtk가 project-settings로 갈린다 — 처치 말고도 달라지는
+            # 것이 생겨 조건 비교가 무너진다. 과거 데이터도 5조건 한 배치라
+            # project-settings였다.
+            python3 -m token_bench estimate --only "$candidate" --isolation "$ISOLATION" \
+              --timeout-seconds "$TIMEOUT_SECONDS" --preset "$PRESET" > /tmp/plan.json
+            batch_id=$(python3 -c 'import json;print(json.load(open("/tmp/plan.json"))["batch_id"])')
+            digest=$(python3 -c 'import json;print(json.load(open("/tmp/plan.json"))["digest"])')
+            plan=".token-bench/runs/$batch_id/plan.json"
+            if [ "$MODE" = "preflight" ]; then
+              # estimate가 이미 preflight·도구 지문·프롬프트 준비를 모두 통과했다.
+              # 여기서 멈추면 모델을 호출하지 않으므로 구독 한도를 쓰지 않는다.
+              echo "preflight 모드 — 계획까지만 확인하고 멈춘다."
+              python3 -c 'import json; p=json.load(open("/tmp/plan.json")); print("batch:", p["batch_id"]); print("isolation:", p["isolation"]); [print("run:", r["run_id"], r["condition_id"]) for r in p["runs"]]'
+              exit 0
+            fi
+            python3 -m token_bench approve --plan "$plan" --confirm "$digest"
+            python3 -m token_bench enqueue --plan "$plan" --approval ".token-bench/runs/$batch_id/approval.json"
+            if python3 -m token_bench work --exit-when-empty; then
+              ran="$candidate"
               break
             fi
-            echo "조건 사용 불가 — 건너뛴다: $candidate" | tee -a /tmp/diagnose.err >&2
+            echo "실행 실패 — 다음 후보로 넘어간다: $candidate" | tee -a /tmp/diagnose.err >&2
+            # 실패한 조건의 proxy 로그를 남긴다. 작업 디렉터리는 runner와 함께
+            # 사라지므로 여기서 찍지 않으면 원인을 볼 수 없다.
+            tail -n 20 .token-bench/runs/"$batch_id"/*/logs/proxy*.log 2>/dev/null || true
           done
-          if [ -z "$condition" ]; then
+          if [ -z "$ran" ]; then
             echo "돌릴 수 있는 조건이 없다." | tee -a /tmp/diagnose.err >&2
             exit 1
           fi
-          echo "이번 실험: preset=$PRESET condition=$condition"
-
-          # `--isolation`을 고정하는 것이 중요하다. 지정하지 않으면 격리 모드가
-          # 배치 내용에서 유도되어, 조건 하나씩 돌리는 지금 구조에서는 base가
-          # safe-mode, rtk가 project-settings로 갈린다 — 처치 말고도 달라지는
-          # 것이 생겨 조건 비교가 무너진다. 과거 데이터도 5조건 한 배치라
-          # project-settings였다.
-          python3 -m token_bench estimate --only "$condition" --isolation "$ISOLATION" \
-            --timeout-seconds "$TIMEOUT_SECONDS" --preset "$PRESET" > /tmp/plan.json
-          batch_id=$(python3 -c 'import json;print(json.load(open("/tmp/plan.json"))["batch_id"])')
-          digest=$(python3 -c 'import json;print(json.load(open("/tmp/plan.json"))["digest"])')
-          plan=".token-bench/runs/$batch_id/plan.json"
-          if [ "$MODE" = "preflight" ]; then
-            # estimate가 이미 preflight·도구 지문·프롬프트 준비를 모두 통과했다.
-            # 여기서 멈추면 모델을 호출하지 않으므로 구독 한도를 쓰지 않는다.
-            echo "preflight 모드 — 계획까지만 확인하고 멈춘다."
-            python3 -c 'import json; p=json.load(open("/tmp/plan.json")); print("batch:", p["batch_id"]); print("isolation:", p["isolation"]); [print("run:", r["run_id"], r["condition_id"]) for r in p["runs"]]'
-            exit 0
-          fi
-          python3 -m token_bench approve --plan "$plan" --confirm "$digest"
-          python3 -m token_bench enqueue --plan "$plan" --approval ".token-bench/runs/$batch_id/approval.json"
-          python3 -m token_bench work --exit-when-empty
 
       - name: Publish and diagnose
         if: inputs.mode != 'preflight'
