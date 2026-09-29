@@ -654,6 +654,20 @@ def _process_claimed_job(
         )
     except WorkerError as exc:
         print(f"오류: {exc}", file=sys.stderr)
+        # 'running'으로 두면 다음 worker가 orphan으로 보고 큐로 되돌린다. 같은
+        # 이유로 또 죽으면서 뒤 후보의 차례가 영영 오지 않는다(2026-09-29
+        # headroom: proxy 실패 뒤 caveman-full이 한 번도 돌지 못했다).
+        finish_job(
+            job.run_id,
+            status="worker-error",
+            returncode=None,
+            finished_at=datetime.now(timezone.utc).isoformat(),
+            duration_seconds=0.0,
+            stdout_path="",
+            stderr_path="",
+            command_json="[]",
+            db_path=db_path,
+        )
         return "worker-error"
 
     # 프로세스가 이벤트 하나 남기지 못하고 끝났다면 측정값이 아니라 실행 오류다.
