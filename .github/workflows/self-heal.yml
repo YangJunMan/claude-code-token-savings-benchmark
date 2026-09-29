@@ -71,9 +71,10 @@ jobs:
       - name: Propose a fix
         if: steps.guard.outputs.open == '0'
         env:
-          # 측정 실행이 아니므로 구독이 아니라 API key로 돈다 — 유지보수가
-          # 실험용 구독 한도를 먹지 않게 한다.
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # 구독 인증으로 돈다. secret을 하나로 유지하기 위한 선택이고(사용자
+          # 결정), 유지보수 호출이 실험용 한도를 조금 쓴다는 대가를 받아들인다 —
+          # 수정 제안은 실패했을 때만 돈다.
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
           set -euo pipefail
           version=$(python3 -c "import re, pathlib; print(re.search(r'CLAUDE_CODE_VERSION: (\S+)', pathlib.Path('.github/workflows/bench.yml').read_text()).group(1))")

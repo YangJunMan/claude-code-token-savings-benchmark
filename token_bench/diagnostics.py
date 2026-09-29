@@ -6,9 +6,14 @@ timeout까지 끌렸는지)를 transcript에서 읽어 사람이 읽을 수 있�
 인식했나"는 못 쓰고, `Read` 도구만 보기 때문에 파일을 `cat`으로 읽는 조건에서는
 같은 사건을 아예 놓쳤다.
 
-비용은 두 가지로 누른다. 모델은 가장 싼 축(`claude-haiku-4-5`)을 쓰고, raw
-transcript(1MB ≈ 250K 토큰, Haiku의 200K context를 넘는다) 대신 turn별 도구
-호출 요약만 넣는다.
+호출은 API key가 아니라 설치된 `claude` CLI를 거친다 — 구독 인증으로 돈다
+(사용자 결정). 그래서 secret이 하나(`CLAUDE_CODE_OAUTH_TOKEN`)로 끝나고,
+`ANTHROPIC_API_KEY`가 환경에 있으면 `preflight`가 구독 실행을 거부하는 문제도
+애초에 생기지 않는다.
+
+비용은 두 가지로 누른다. 모델은 가장 싼 축(`haiku`)을 쓰고, raw transcript
+(1MB ≈ 250K 토큰, Haiku의 200K context를 넘는다) 대신 turn별 도구 호출 요약만
+넣는다.
 
 자격증명이 없거나 호출이 실패하면 manifest를 건드리지 않고 넘어간다 — 진단은
 부가 정보이고, 이것 때문에 collect 전체가 실패하면 측정 데이터를 잃는다.
@@ -18,14 +23,19 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 
-# 기본은 현행 최저가 모델. 세대가 바뀌면 이 id가 막히므로, 그때는 Models API가
-# 실제로 주는 목록에서 아래 선호 순서(싼 계열 먼저)로 다시 고른다. 가격 필드는
-# API에 없어서 계열 이름으로 고른다.
-DEFAULT_MODEL = os.environ.get("TOKEN_BENCH_DIAGNOSIS_MODEL", "claude-haiku-4-5")
+from token_bench import claude_code
+from token_bench.claude_code import CLAUDE_BIN
+
+# `claude --model`은 계열 alias를 받는다("haiku", "sonnet", ...). alias는 CLI가
+# 그때그때 최신 세대로 풀어 주므로, 특정 id를 박는 것보다 세대 교체에 강하다.
+# 첫 alias가 막히면 다음 것으로 한 번 더 시도한다 — 목록은 싼 계열 먼저다.
+DEFAULT_MODEL = os.environ.get("TOKEN_BENCH_DIAGNOSIS_MODEL", "haiku")
 MODEL_PREFERENCE = ("haiku", "sonnet")
+DIAGNOSIS_TIMEOUT_SECONDS = 180
 # Haiku의 200K context와 회당 비용을 함께 누르는 상한. 넘는 만큼은 뒤를 자른다
 # — 반복·timeout은 실행 후반에 나타나므로 앞이 아니라 중간을 버린다.
 MAX_DIGEST_CHARS = 60_000
@@ -118,35 +128,25 @@ def _digest(stdout_path: str | Path) -> str:
     return f"{text[:keep]}\n...(중략)...\n{text[-keep:]}"
 
 
-def _create(client, model: str, prompt: str):
-    return client.messages.create(
-        model=model,
-        max_tokens=1500,
-        system=[{"type": "text", "text": _SYSTEM, "cache_control": {"type": "ephemeral"}}],
-        messages=[{"role": "user", "content": prompt}],
-    )
+def _ask(model: str, prompt: str) -> str:
+    """설치된 claude CLI로 한 번 물어본다. 실패하면 CalledProcessError/TimeoutExpired.
 
-
-def _cheapest_available(client) -> str | None:
-    """Models API가 주는 목록에서 선호 계열 순으로 하나 고른다.
-
-    같은 계열이 여럿이면 `created_at`이 가장 최근인 것을 쓴다 — id 사전순은
-    버전 순서가 아니다(`claude-haiku-10-0` < `claude-haiku-4-5`).
+    `--safe-mode`로 개인 customization(스킬·훅·플러그인)을 끈다 — 진단은 측정이
+    아니지만, 사람마다 다른 설정이 레포트 문장을 바꾸면 비교가 어려워진다.
+    프롬프트는 stdin으로 준다: `--allowed-tools` 같은 variadic 옵션 뒤에 인자로
+    붙이면 그쪽이 먹어 버린다.
     """
 
-    try:
-        available = [
-            (model.id, getattr(model, "created_at", None) or "")
-            for model in client.models.list()
-        ]
-    except Exception as exc:
-        print(f"모델 목록을 읽을 수 없다: {exc}", file=sys.stderr)
-        return None
-    for family in MODEL_PREFERENCE:
-        matches = [entry for entry in available if family in entry[0]]
-        if matches:
-            return max(matches, key=lambda entry: str(entry[1]))[0]
-    return None
+    return subprocess.run(
+        [CLAUDE_BIN, "-p", "--model", model, "--safe-mode"],
+        input=f"{_SYSTEM}\n\n{prompt}",
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=DIAGNOSIS_TIMEOUT_SECONDS,
+        check=True,
+    ).stdout
 
 
 def diagnose(
@@ -156,19 +156,20 @@ def diagnose(
     condition_id: str = "",
     model: str = DEFAULT_MODEL,
 ) -> dict | None:
-    """실행 하나를 LLM으로 진단한다. 자격증명·호출 실패 시 None."""
+    """실행 하나를 LLM으로 진단한다. 로그인·호출 실패 시 None."""
 
     digest = _digest(stdout_path)
     if not digest:
         return None
-    if not (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")):
-        print("진단 건너뜀: ANTHROPIC_API_KEY가 없다.", file=sys.stderr)
+    if not claude_code.is_installed():
+        print("진단 건너뜀: claude CLI가 PATH에 없다.", file=sys.stderr)
         return None
-
     try:
-        import anthropic
-    except ImportError:
-        print("진단 건너뜀: anthropic 패키지가 없다.", file=sys.stderr)
+        if not claude_code.get_auth_status().logged_in:
+            print("진단 건너뜀: 구독 로그인 상태가 아니다.", file=sys.stderr)
+            return None
+    except claude_code.ClaudeCodeError as exc:
+        print(f"진단 건너뜀: 로그인 상태를 확인할 수 없다: {exc}", file=sys.stderr)
         return None
 
     prompt = (
@@ -176,26 +177,24 @@ def diagnose(
         f"실행 종료 상태: {status}\n\n"
         f"turn 기록:\n{digest}"
     )
-    client = anthropic.Anthropic()
-    try:
-        response = _create(client, model, prompt)
-    except anthropic.NotFoundError:
-        # 이 id가 은퇴했다. 남아 있는 모델 중 싼 계열로 한 번 더 시도한다.
-        fallback = _cheapest_available(client)
-        if fallback is None:
-            print(f"진단 실패: {model}이 없고 대체 모델도 못 찾았다.", file=sys.stderr)
-            return None
-        print(f"{model} 사용 불가 — {fallback}으로 대체한다.", file=sys.stderr)
+
+    # 첫 모델이 막히면 선호 순서의 나머지 alias로 한 번씩 더 시도한다. alias는
+    # CLI가 최신 세대로 풀어 주므로 id를 박는 것보다 세대 교체에 강하다.
+    attempts = [model] + [m for m in MODEL_PREFERENCE if m != model]
+    text = None
+    for candidate in attempts:
         try:
-            response = _create(client, fallback, prompt)
-        except Exception as exc:
-            print(f"진단 실패({fallback}): {exc}", file=sys.stderr)
-            return None
-    except Exception as exc:  # 진단 실패가 측정 데이터 수집을 막지 않는다.
-        print(f"진단 실패({model}): {exc}", file=sys.stderr)
+            text = _ask(candidate, prompt)
+            if candidate != model:
+                print(f"{model} 사용 불가 — {candidate}으로 대체했다.", file=sys.stderr)
+            break
+        except Exception as exc:  # 진단 실패가 측정 데이터 수집을 막지 않는다.
+            detail = getattr(exc, "stderr", "") or str(exc)
+            print(f"진단 실패({candidate}): {str(detail)[:300]}", file=sys.stderr)
+    if text is None:
         return None
 
-    text = "".join(block.text for block in response.content if block.type == "text").strip()
+    text = text.strip()
     if text.startswith("```"):
         # ```json ... ``` 으로 감싸 오는 경우가 흔하다. 울타리만 벗긴다.
         text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()

@@ -164,9 +164,9 @@ jobs:
           git -C "$dest" checkout "$CAVEMAN_SHA"
           test -f "$dest/plugins/caveman/skills/caveman/SKILL.md"
 
-      # 측정 실행 단계에는 ANTHROPIC_API_KEY를 주지 않는다. 이 이름이 환경에
-      # 있으면 claude가 API key 경로로 붙고 preflight가 구독 실행을 거부한다
-      # (`preflight.py:85`). 진단은 아래 별도 단계에서만 키를 본다.
+      # 측정도 진단도 구독 인증(CLAUDE_CODE_OAUTH_TOKEN)으로 돈다. 어디에도
+      # ANTHROPIC_API_KEY를 두지 않는다 — 이 이름이 환경에 있으면 claude가 API
+      # key 경로로 붙고 preflight가 구독 실행을 거부한다(`preflight.py:85`).
       - name: Run one batch
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -215,10 +215,11 @@ jobs:
       - name: Publish and diagnose
         if: inputs.mode != 'preflight'
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # 진단도 설치된 claude CLI를 거쳐 구독으로 돈다(사용자 결정) —
+          # secret이 하나로 끝나고 API 청구가 생기지 않는다.
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
           set -euo pipefail
-          python3 -m pip install --quiet anthropic
           python3 -m token_bench publish
           # 진단이 모델을 갈아탔거나 아예 실패했으면 stderr에 남는다. 무인
           # 실행에서는 아무도 그 로그를 보지 않으므로 파일로 받아 다음 단계에서
