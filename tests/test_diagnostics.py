@@ -10,8 +10,20 @@ from unittest import mock
 from token_bench import diagnostics
 
 
-class _NotFound(Exception):
-    """SDK의 NotFoundError 자리에 끼우는 대역."""
+def _logged_in(monkey_ok=True):
+    """claude CLI가 설치돼 있고 로그인된 상태를 흉내낸다."""
+
+    return (
+        mock.patch.object(diagnostics.claude_code, "is_installed", return_value=True),
+        mock.patch.object(
+            diagnostics.claude_code,
+            "get_auth_status",
+            return_value=diagnostics.claude_code.AuthStatus(
+                logged_in=monkey_ok, auth_method="oauth_token",
+                api_provider="firstParty", subscription_type=None,
+            ),
+        ),
+    )
 
 
 def _transcript(path: Path, turns: int) -> None:
@@ -58,22 +70,21 @@ class DigestTest(unittest.TestCase):
 
 
 class DiagnoseTest(unittest.TestCase):
-    def test_no_credentials_skips_without_raising(self):
+    def test_no_login_skips_without_raising(self):
         with TemporaryDirectory() as tmp:
             log = Path(tmp) / "stdout.jsonl"
             _transcript(log, 2)
-            with mock.patch.dict("os.environ", {}, clear=True):
+            with mock.patch.object(diagnostics.claude_code, "is_installed", return_value=False):
                 self.assertIsNone(diagnostics.diagnose(log))
 
-    def test_api_failure_does_not_propagate(self):
+    def test_cli_failure_does_not_propagate(self):
         with TemporaryDirectory() as tmp:
             log = Path(tmp) / "stdout.jsonl"
             _transcript(log, 2)
-            fake = mock.MagicMock()
-            fake.NotFoundError = _NotFound
-            fake.Anthropic.return_value.messages.create.side_effect = RuntimeError("429")
-            with mock.patch.dict("os.environ", {"ANTHROPIC_API_KEY": "k"}), \
-                    mock.patch.dict("sys.modules", {"anthropic": fake}):
+            installed, auth = _logged_in()
+            with installed, auth, mock.patch.object(
+                diagnostics, "_ask", side_effect=RuntimeError("boom")
+            ):
                 self.assertIsNone(diagnostics.diagnose(log))
 
 
@@ -95,48 +106,38 @@ class ManifestTest(unittest.TestCase):
             self.assertEqual(json.loads(manifest.read_text()), {})
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class ModelFallbackTest(unittest.TestCase):
-    """기본 모델이 은퇴했을 때 남아 있는 싼 계열로 갈아탄다."""
+    """첫 alias가 막히면 선호 순서의 다음 alias로 한 번 더 시도한다."""
 
-    def _sdk(self, *, available, first_error):
-        fake = mock.MagicMock()
-        fake.NotFoundError = _NotFound
-        client = fake.Anthropic.return_value
-        client.models.list.return_value = [mock.Mock(id=mid) for mid in available]
-        ok = mock.Mock(content=[mock.Mock(type="text", text=json.dumps(
-            {"summary": "s", "events": [{"turn": 1, "kind": "other", "summary": "e"}]}))])
-        client.messages.create.side_effect = [first_error, ok]
-        return fake, client
-
-    def test_retired_model_falls_back_to_listed_model(self):
+    def _run(self, side_effect):
         with TemporaryDirectory() as tmp:
             log = Path(tmp) / "stdout.jsonl"
             _transcript(log, 2)
-            fake, client = self._sdk(
-                available=["claude-opus-9", "claude-haiku-6-0", "claude-sonnet-9"],
-                first_error=_NotFound("model not found"),
-            )
-            with mock.patch.dict("os.environ", {"ANTHROPIC_API_KEY": "k"}), \
-                    mock.patch.dict("sys.modules", {"anthropic": fake}):
-                report = diagnostics.diagnose(log)
-            self.assertEqual(report["events"][0]["turn"], 1)
-            # haiku가 sonnet보다 먼저 선택된다.
-            self.assertEqual(
-                client.messages.create.call_args_list[1].kwargs["model"], "claude-haiku-6-0")
+            installed, auth = _logged_in()
+            asked = []
 
-    def test_no_cheap_family_left_returns_none(self):
-        with TemporaryDirectory() as tmp:
-            log = Path(tmp) / "stdout.jsonl"
-            _transcript(log, 2)
-            fake, _ = self._sdk(available=["claude-opus-9"], first_error=_NotFound("gone"))
-            with mock.patch.dict("os.environ", {"ANTHROPIC_API_KEY": "k"}), \
-                    mock.patch.dict("sys.modules", {"anthropic": fake}):
-                self.assertIsNone(diagnostics.diagnose(log))
+            def fake_ask(model, prompt):
+                asked.append(model)
+                result = side_effect(model)
+                if isinstance(result, Exception):
+                    raise result
+                return result
 
+            with installed, auth, mock.patch.object(diagnostics, "_ask", fake_ask):
+                return diagnostics.diagnose(log), asked
+
+    def test_falls_back_to_the_next_family(self):
+        ok = json.dumps({"summary": "s", "events": [{"turn": 1, "kind": "other", "summary": "e"}]})
+        report, asked = self._run(
+            lambda model: RuntimeError("model not found") if model == "haiku" else ok
+        )
+        self.assertEqual(report["events"][0]["turn"], 1)
+        self.assertEqual(asked, ["haiku", "sonnet"])
+
+    def test_every_family_failing_returns_none(self):
+        report, asked = self._run(lambda model: RuntimeError("gone"))
+        self.assertIsNone(report)
+        self.assertEqual(asked, list(diagnostics.MODEL_PREFERENCE))
 
 
 class ResponseShapeTest(unittest.TestCase):
@@ -144,12 +145,8 @@ class ResponseShapeTest(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             log = Path(tmp) / "stdout.jsonl"
             _transcript(log, 2)
-            fake = mock.MagicMock()
-            fake.NotFoundError = _NotFound
-            fake.Anthropic.return_value.messages.create.return_value = mock.Mock(
-                content=[mock.Mock(type="text", text=text)])
-            with mock.patch.dict("os.environ", {"ANTHROPIC_API_KEY": "k"}), \
-                    mock.patch.dict("sys.modules", {"anthropic": fake}):
+            installed, auth = _logged_in()
+            with installed, auth, mock.patch.object(diagnostics, "_ask", return_value=text):
                 return diagnostics.diagnose(log)
 
     def test_fenced_json_is_parsed(self):
@@ -160,12 +157,26 @@ class ResponseShapeTest(unittest.TestCase):
     def test_no_events_means_no_manifest_entry(self):
         self.assertIsNone(self._run('{"summary": "특이사항 없음", "events": []}'))
 
+    def test_non_json_output_is_kept_as_one_event(self):
+        report = self._run("JSON을 안 내고 이렇게 답했다")
+        self.assertEqual(report["events"][0]["kind"], "other")
+        self.assertIn("이렇게 답했다", report["events"][0]["summary"])
 
-class NewestModelTest(unittest.TestCase):
-    def test_created_at_decides_not_id_sort(self):
-        client = mock.MagicMock()
-        client.models.list.return_value = [
-            mock.Mock(id="claude-haiku-4-5", created_at="2025-10-01"),
-            mock.Mock(id="claude-haiku-10-0", created_at="2027-01-01"),
-        ]
-        self.assertEqual(diagnostics._cheapest_available(client), "claude-haiku-10-0")
+
+class CommandTest(unittest.TestCase):
+    def test_prompt_goes_through_stdin_with_safe_mode(self):
+        """`--allowed-tools` 같은 variadic 옵션 뒤에 인자로 붙이면 삼켜진다."""
+        completed = mock.Mock(stdout='{"summary":"s","events":[]}')
+        with mock.patch.object(diagnostics.subprocess, "run", return_value=completed) as run:
+            diagnostics._ask("haiku", "프롬프트 본문")
+        args, kwargs = run.call_args
+        self.assertEqual(args[0][:2], [diagnostics.CLAUDE_BIN, "-p"])
+        self.assertIn("--safe-mode", args[0])
+        self.assertIn("--model", args[0])
+        self.assertIn("프롬프트 본문", kwargs["input"])
+        self.assertTrue(kwargs["check"])
+        self.assertEqual(kwargs["errors"], "replace")
+
+
+if __name__ == "__main__":
+    unittest.main()

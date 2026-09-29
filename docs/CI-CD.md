@@ -79,9 +79,9 @@
 - `workflow_dispatch`의 `mode` 입력: `preflight`를 고르면 `estimate`까지만 하고
   멈춘다. 모델을 호출하지 않으므로 구독 한도를 쓰지 않고 secret·인증·도구 설치·
   데이터 복원·조건 선택을 모두 확인할 수 있다. 게시·커밋·진단 단계는 건너뛴다.
-- 단계 분리가 중요하다. 측정 실행 단계에는 `ANTHROPIC_API_KEY`를 주지 않는다 —
-  그 이름이 환경에 있으면 `claude`가 API key 경로로 붙고 `preflight.py`가 구독
-  실행을 거부한다. 진단은 `Publish and diagnose` 단계에서만 키를 본다.
+- 측정도 진단도 구독 인증(`CLAUDE_CODE_OAUTH_TOKEN`)으로 돈다. 어디에도
+  `ANTHROPIC_API_KEY`를 두지 않는다 — 그 이름이 환경에 있으면 `claude`가 API key
+  경로로 붙고 `preflight.py`가 구독 실행을 거부한다.
 - `Restore data from the data branch`가 **실행 전에** 기존 CSV를 작업 트리에
   복원한다. `comparison.csv`는 전체 `run-summary.csv`에서 매번 다시 계산되고 진단
   manifest도 기존 파일에 항목을 더하므로, 빈 트리로 돌리면 그 두 파일이 이번
@@ -161,17 +161,25 @@ git commit -m "chore: 측정 결과를 data 브랜치로 옮긴다"
 
 | 이름 | 쓰는 곳 | 비고 |
 | --- | --- | --- |
-| `CLAUDE_CODE_OAUTH_TOKEN` | `bench.yml` 측정 실행 | `claude setup-token`으로 발급. 구독 인증이며 `preflight`가 API key 경로를 거부하므로 필수 |
-| `ANTHROPIC_API_KEY` | `bench.yml` 진단, `self-heal.yml` | 구독과 별개 청구. 유지보수가 실험용 구독 한도를 먹지 않게 한다 |
+| `CLAUDE_CODE_OAUTH_TOKEN` | `bench.yml` 측정·진단, `self-heal.yml` | `claude setup-token`으로 발급. 이것 하나뿐이다 |
 
-두 값 모두 GitHub Settings > Secrets에 직접 입력한다. 로컬 셸에 붙여넣으면 세션
-기록에 남는다.
+**secret은 하나다.** 진단과 자기수정도 설치된 `claude` CLI를 거쳐 구독으로 돈다
+(사용자 결정) — API 청구가 없고, `ANTHROPIC_API_KEY`가 환경에 섞여 `preflight`가
+구독 실행을 거부하는 경로도 애초에 생기지 않는다. 대가는 유지보수 호출이 실험용
+한도를 조금 쓰는 것이다. 진단은 실행당 1회(약 5K 토큰), 자기수정은 실패했을 때만
+돈다.
+
+`gh secret set CLAUDE_CODE_OAUTH_TOKEN`으로 프롬프트에 붙여넣는다. `--body`로 주면
+셸 히스토리에 남는다.
 
 ## 아직 검증되지 않은 것
 
 CI에서 한 번도 돌지 않은 경로다. 첫 실행 때 확인해야 한다.
 
-- 진단의 실제 LLM 호출(프롬프트가 파싱 가능한 JSON을 내는지).
+- ~~진단의 실제 LLM 호출~~ — 2026-09-29 로컬에서 합성 transcript로 확인했다.
+  `claude -p --model haiku --safe-mode`가 파싱 가능한 JSON을 냈고, 같은 테스트를
+  6회 반복한 실행에 대해 "근본 원인을 인식하지 못하고 코드 수정 대신 같은 명령을
+  반복했다"는 원인을 썼다. CI에서는 아직 안 돌았다.
 - `bench.yml`의 `Report diagnosis drift`가 여는 issue — `gh issue list --search`의
   한글 title 매칭과 중복 방지.
 - `self-heal.yml` 전체 — `--allowed-tools`만으로 비대화형 편집이 되는지,
