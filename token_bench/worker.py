@@ -239,23 +239,50 @@ def _free_port() -> int:
         return probe.getsockname()[1]
 
 
-def _wait_until_ready(url: str, process: subprocess.Popen) -> None:
+def _proxy_log_tail(*paths: Path, limit: int = 600) -> str:
+    """proxy가 남긴 마지막 출력. 실패 메시지에 붙여 원인을 드러낸다."""
+
+    chunks = []
+    for path in paths:
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace").strip()
+        if text:
+            chunks.append(f"[{path.name}] {text[-limit:]}")
+    return " / ".join(chunks)
+
+
+def _wait_until_ready(
+    url: str, process: subprocess.Popen, *log_paths: Path
+) -> None:
     """proxy가 요청을 받을 준비가 될 때까지 기다린다.
 
     여기서 실패하면 조건의 처치가 적용되지 않은 채 실행이 시작되므로, 조용히
     넘어가지 않고 실행 자체를 중단한다.
+
+    실패 메시지에 proxy의 마지막 출력을 붙인다. 종료 코드만 남기면 무인 실행에서
+    원인을 알 수 없다 — 로그는 작업 디렉터리 안에 있고 그건 runner와 함께
+    사라진다(2026-09-29 headroom 실측: "코드 1"만 남고 이유를 볼 수 없었다).
     """
 
     deadline = time.monotonic() + PROXY_READY_TIMEOUT_SECONDS
     while time.monotonic() < deadline:
         if process.poll() is not None:
-            raise WorkerError(f"proxy가 준비되기 전에 종료했다 (코드 {process.returncode}).")
+            tail = _proxy_log_tail(*log_paths)
+            raise WorkerError(
+                f"proxy가 준비되기 전에 종료했다 (코드 {process.returncode})."
+                + (f" 마지막 출력: {tail}" if tail else " 남긴 출력이 없다.")
+            )
         try:
             with urllib.request.urlopen(url, timeout=2):
                 return
         except Exception:
             time.sleep(0.5)
-    raise WorkerError(f"proxy가 {PROXY_READY_TIMEOUT_SECONDS}초 안에 준비되지 않았다: {url}")
+    tail = _proxy_log_tail(*log_paths)
+    raise WorkerError(
+        f"proxy가 {PROXY_READY_TIMEOUT_SECONDS}초 안에 준비되지 않았다: {url}"
+        + (f" 마지막 출력: {tail}" if tail else "")
+    )
 
 
 @contextlib.contextmanager
@@ -272,9 +299,13 @@ def proxy_process(injection: Injection, *, log_dir: Path, env: dict[str, str]):
         raise WorkerError(f"proxy 실행 파일을 찾을 수 없다: {injection.binary}")
 
     port = _free_port()
-    log_path = log_dir / "proxy.log"
     log_dir.mkdir(parents=True, exist_ok=True)
-    substitutions = {"port": str(port), "log_path": str(log_path)}
+    # 두 파일로 나눈다. proxy.log는 우리가 stdout/stderr를 받는 파일이고,
+    # proxy-tool.log는 조건 선언의 `{log_path}`가 가리키는, 도구가 직접 쓰는
+    # 파일이다. 같은 경로를 주면 양쪽이 "w"로 열어 서로를 잘라낸다.
+    log_path = log_dir / "proxy.log"
+    tool_log_path = log_dir / "proxy-tool.log"
+    substitutions = {"port": str(port), "log_path": str(tool_log_path)}
     args = [a.format(**substitutions) for a in (injection.args or ())]
 
     with open(log_path, "w", encoding="utf-8") as log_f:
@@ -283,7 +314,10 @@ def proxy_process(injection: Injection, *, log_dir: Path, env: dict[str, str]):
         )
         try:
             _wait_until_ready(
-                f"http://{PROXY_HOST}:{port}{injection.ready_path or '/readyz'}", process
+                f"http://{PROXY_HOST}:{port}{injection.ready_path or '/readyz'}",
+                process,
+                log_path,
+                tool_log_path,
             )
             yield f"http://{PROXY_HOST}:{port}"
         finally:
