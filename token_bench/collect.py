@@ -443,23 +443,44 @@ def successful_runs_by_condition(
     return counts
 
 
+def condition_priority(
+    summary_path: Path,
+    *,
+    preset: str,
+    conditions_path: Path = Path("benchmark/conditions.json"),
+) -> list[str]:
+    """표본이 적은 조건부터 나열한다. 한 tick은 이 중 실제로 돌 수 있는 첫 조건을 쓴다.
+
+    한 tick에 조건 하나만 돌리므로(사용자 결정: 간격은 세트가 아니라 실험 단위다)
+    매번 가장 뒤처진 조건을 집어 균등하게 쌓는다. 동수면 conditions.json의 선언
+    순서를 따른다.
+
+    하나가 아니라 순서 전체를 주는 이유: 어떤 조건의 도구가 runner에서 사라지면
+    그 조건은 영구히 표본이 가장 적은 상태로 남아 매번 다시 뽑힌다. 그러면 나머지
+    조건의 수집이 통째로 멈춘다(2026-09-29 headroom 실측: 4회 연속 실패, 다른
+    조건은 한 번도 돌지 못했다). 호출자가 앞에서부터 돌 수 있는 것을 고르면
+    고장난 조건 하나가 전체를 막지 않는다.
+    """
+
+    declared = [condition.id for condition in load_conditions(conditions_path)]
+    counts = successful_runs_by_condition(summary_path, prompt_id=preset)
+    return sorted(
+        declared,
+        key=lambda cid: (counts.get(_legacy_condition(cid), 0), declared.index(cid)),
+    )
+
+
 def next_condition(
     summary_path: Path,
     *,
     preset: str,
     conditions_path: Path = Path("benchmark/conditions.json"),
 ) -> str:
-    """이 프리셋에서 표본이 가장 적은 조건의 id를 고른다.
+    """표본이 가장 적은 조건 하나."""
 
-    한 tick에 조건 하나만 돌리므로(사용자 결정: 간격은 세트가 아니라 실험 단위다)
-    매번 가장 뒤처진 조건을 집어 균등하게 쌓는다. 실행이 실패해 한 조건만 표본이
-    모자라도 다음 차례에 그 조건이 다시 선택되므로 따로 보정할 필요가 없다.
-    동수면 conditions.json의 선언 순서를 따른다.
-    """
-
-    declared = [condition.id for condition in load_conditions(conditions_path)]
-    counts = successful_runs_by_condition(summary_path, prompt_id=preset)
-    return min(declared, key=lambda cid: counts.get(_legacy_condition(cid), 0))
+    return condition_priority(
+        summary_path, preset=preset, conditions_path=conditions_path
+    )[0]
 
 
 def next_preset(

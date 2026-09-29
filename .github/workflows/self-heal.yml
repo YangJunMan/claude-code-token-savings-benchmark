@@ -80,7 +80,12 @@ jobs:
           npm install -g "@anthropic-ai/claude-code@${version}"
           # 읽기와 파일 편집만 준다. Bash를 주지 않으므로 이 단계에서 임의
           # 명령이 돌지 않는다. 범위 검사(다음 단계)와 이중으로 막는다.
-          claude -p --allowed-tools "Read,Edit,Grep,Glob" "$(cat ./.github/self-heal-prompt.md)"
+          #
+          # 프롬프트는 stdin으로 준다. `--allowed-tools`가 값을 여러 개 받는
+          # variadic 옵션이라, 뒤에 인자로 붙이면 그것까지 도구 목록으로 먹고
+          # "Input must be provided either through stdin or as a prompt argument"로
+          # 끝난다(2026-09-29 실측).
+          claude -p --allowed-tools "Read,Edit,Grep,Glob" < ./.github/self-heal-prompt.md
 
       - name: Enforce change scope
         if: steps.guard.outputs.open == '0'
