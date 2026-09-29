@@ -271,3 +271,44 @@ else:
     jobs = json.loads(_run_cli(["status"], cwd=sandbox_repo, env=env).stdout)
     assert jobs[0]["status"] == "queued"
     assert jobs[0]["started_at"] is None
+
+
+def test_worker_error_job_is_terminal_so_next_worker_runs_the_rest(sandbox_repo, tmp_path):
+    """proxy가 뜨지 못해 죽은 job은 'running'이 아니라 종결 상태로 남아야 한다.
+
+    'running'으로 남으면 다음 worker가 orphan으로 보고 큐로 되돌리고, 같은
+    이유로 또 죽으면서 뒤에 있는 job의 차례가 오지 않는다(2026-09-29 CI:
+    headroom proxy 실패 뒤 caveman-full이 한 번도 실행되지 않았다)."""
+
+    fake_bin = tmp_path / "fakebin"
+    _write_fake_claude(fake_bin)
+    # 첫 조건에만 즉시 죽는 proxy를 붙인다.
+    # --version은 통과하고 proxy로 띄우면 죽는다 — headroom 실패와 같은 모양이다.
+    write_fake_cli(
+        fake_bin,
+        "deadproxy",
+        'import sys\nif sys.argv[1:2] == ["--version"]:\n    print("deadproxy 1.0")\nelse:\n    sys.exit(1)\n',
+    )
+    conditions_path = sandbox_repo / "benchmark" / "conditions.json"
+    document = json.loads(conditions_path.read_text(encoding="utf-8"))
+    document["conditions"][0].setdefault("injections", []).append(
+        {"type": "proxy", "binary": "deadproxy", "args": ["--port", "{port}"]}
+    )
+    document["conditions"][0]["requires_tools"] = ["deadproxy"]
+    document["conditions"][0]["tool_probes"] = {"deadproxy": ["--version"]}
+    document["conditions"][0]["repository_url"] = "https://github.com/example/deadproxy"
+    conditions_path.write_text(json.dumps(document), encoding="utf-8")
+
+    env = _cli_env(fake_bin)
+    _prepare_approve_enqueue(sandbox_repo, env)
+
+    first = _run_cli(["work", "--exit-when-empty"], cwd=sandbox_repo, env=env)
+    assert first.returncode == 1
+    jobs = json.loads(_run_cli(["status"], cwd=sandbox_repo, env=env).stdout)
+    assert jobs[0]["status"] == "worker-error"
+
+    second = _run_cli(["work", "--exit-when-empty"], cwd=sandbox_repo, env=env)
+    assert second.returncode == 0, second.stderr
+    jobs = json.loads(_run_cli(["status"], cwd=sandbox_repo, env=env).stdout)
+    assert jobs[0]["status"] == "worker-error"
+    assert jobs[1]["status"] == "succeeded"

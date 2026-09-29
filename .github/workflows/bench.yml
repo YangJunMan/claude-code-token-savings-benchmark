@@ -152,7 +152,7 @@ jobs:
           set -euo pipefail
           # headroom 조건은 proxy로 이 실행 파일을 띄운다. PyPI 배포명은
           # headroom-ai이고 실행 파일 이름은 headroom이다.
-          python3 -m pip install --quiet "headroom-ai==${HEADROOM_VERSION}"
+          python3 -m pip install --quiet "headroom-ai[proxy]==${HEADROOM_VERSION}"
           headroom --version
 
       - name: Install caveman plugin
