@@ -70,7 +70,8 @@
   대기하고, 그 사이 또 cron이 뜨면 대기 중인 쪽이 취소된다. 결과적으로 "바쁘면
   그 시간은 건너뜀"이다.
 - 도구 버전을 env에 고정한다: `CLAUDE_CODE_VERSION`, `RTK_VERSION`,
-  `HEADROOM_VERSION`, `CAVEMAN_SHA`. 자동 업그레이드는 없다. 조건이 요구하는
+  `HEADROOM_VERSION`, `CAVEMAN_SHA`. `headroom`은 proxy를 띄우므로 `headroom-ai[proxy]`
+  extra까지 설치한다(#29). 자동 업그레이드는 없다. 조건이 요구하는
   도구를 하나라도 빠뜨리면 그 조건은 runner에서 계속 실패한다.
 - **`ISOLATION: project-settings`를 고정한다.** 지정하지 않으면 격리 모드가 배치
   내용에서 유도되어, 조건 하나씩 돌리는 구조에서는 `base`가 `safe-mode`,
@@ -90,6 +91,11 @@
   결과는 커밋한다. 새 CSV를 tmp로 옮기고 트리를 정리한 뒤 `data`로 갈아타 다시
   넣는다(스테이징된 변경을 들고 브랜치를 바꾸면 충돌한다). `data` 브랜치가 없으면
   `--orphan`으로 만든다.
+- `Verify the run was recorded`는 성공한 실행의 batch id가 `token-bench-results.csv`에
+  없으면 실패한다. 2026-09-29 21:41 UTC `base` 실행(batch `8e8f8e165209`)은 `succeeded`
+  ·테스트 통과인데 `data` 브랜치 어디에도 행이 없었고 워크플로는 success로 끝났다.
+  원인은 로그로 확정하지 못했다(같은 조건·같은 시작 상태의 23:03 실행은 정상 기록).
+  재현되면 이 단계의 출력(`git status`, CSV 행 수)으로 본다.
 
 ### 비교 기준선
 
@@ -179,7 +185,9 @@ CI에서 한 번도 돌지 않은 경로다. 첫 실행 때 확인해야 한다.
 - ~~진단의 실제 LLM 호출~~ — 2026-09-29 로컬에서 합성 transcript로 확인했다.
   `claude -p --model haiku --safe-mode`가 파싱 가능한 JSON을 냈고, 같은 테스트를
   6회 반복한 실행에 대해 "근본 원인을 인식하지 못하고 코드 수정 대신 같은 명령을
-  반복했다"는 원인을 썼다. CI에서는 아직 안 돌았다.
+  반복했다"는 원인을 썼다. 이후 진단 모델을 `sonnet` alias·`--effort low`로 고정했고
+  (PR #30, 사용자 결정) 그 조합은 로컬 호출로만 확인했다. CI에서는 아직 안 돌았다.
+- `Verify the run was recorded` — 이번에 추가했고 아직 한 번도 돌지 않았다.
 - `bench.yml`의 `Report diagnosis drift`가 여는 issue — `gh issue list --search`의
   한글 title 매칭과 중복 방지.
 - `self-heal.yml` 전체 — `--allowed-tools`만으로 비대화형 편집이 되는지,

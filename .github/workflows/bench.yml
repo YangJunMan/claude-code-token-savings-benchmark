@@ -216,6 +216,7 @@ jobs:
             python3 -m token_bench enqueue --plan "$plan" --approval ".token-bench/runs/$batch_id/approval.json"
             if python3 -m token_bench work --exit-when-empty; then
               ran="$candidate"
+              echo "$batch_id" > /tmp/ran_batch_id
               break
             fi
             echo "실행 실패 — 다음 후보로 넘어간다: $candidate" | tee -a /tmp/diagnose.err >&2
@@ -308,3 +309,24 @@ jobs:
           fi
           git commit -m "data: 자동 실행 결과 추가"
           git push origin "$DATA_BRANCH"
+
+      # 성공한 실행이 공개 CSV에 행을 남기지 못하면 조용히 넘기지 않는다. 2026-09-29
+      # 21:41 UTC base 실행(batch 8e8f8e165209)은 succeeded인데 어느 CSV에도 행이
+      # 없었고, commit 단계는 "결과 변화 없음"으로 끝나 워크플로가 success로 보였다.
+      # 원인은 로그로 확정하지 못했다 — 다음에 재현되면 아래 출력으로 본다.
+      - name: Verify the run was recorded
+        if: always() && inputs.mode != 'preflight'
+        run: |
+          set -euo pipefail
+          test -f /tmp/ran_batch_id || exit 0
+          batch_id=$(cat /tmp/ran_batch_id)
+          git fetch origin data --depth=1 2>/dev/null || true
+          if git grep -q "$batch_id" origin/data -- data/token-bench-results.csv 2>/dev/null \
+             || grep -q "$batch_id" data/token-bench-results.csv 2>/dev/null; then
+            exit 0
+          fi
+          echo "::error::batch $batch_id 실행은 끝났지만 data/token-bench-results.csv에 행이 없다."
+          ls -l .token-bench/state.db || true
+          git status --short data/ || true
+          wc -l data/*.csv || true
+          exit 1
