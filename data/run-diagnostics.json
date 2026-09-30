@@ -273,5 +273,15 @@
         "summary": "turn 17-27: store.py의 transaction/migration 오류 원인을 migrations/001_initial.sql 파일 자체의 이상(중복 컬럼, 인코딩 문제)으로 의심해 cat -A, repr(), git show, Read 재호출 등으로 동일 파일을 여러 각도에서 반복 검사했으나, 실제 원인은 002_add_constraints.sql이 001과 겹치는 컬럼을 다시 추가하려 한 것(turn 23 'duplicate column name' 에러)이었다. 파일 자체가 아니라 새로 작성한 마이그레이션 스크립트의 내용을 먼저 검토했다면 더 빨리 원인을 찾을 수 있었다."
       }
     ]
+  },
+  "c7c7379ec845-caveman-full__r1": {
+    "summary": "구현·테스트를 정상적으로 완료했으나 git 저장소 루트 혼동으로 커밋 상태 확인 과정이 잠시 헤맸을 뿐 반복이나 timeout 없이 성공적으로 종료됨",
+    "events": [
+      {
+        "turn": 33,
+        "kind": "other",
+        "summary": "turn 33-36: bash 작업 디렉터리가 .token-bench/runs/.../workdir로 바뀐 상태에서 git status/add를 실행해 변경사항이 안 보인다고 판단했고, 실제로는 워크트리 루트(top-level repo)에서 확인해야 했음을 뒤늦게 알아채 git rev-parse --show-toplevel과 재확인으로 바로잡음. 반복 실패로 이어지진 않았지만 두세 턴의 탐색 낭비가 발생함"
+      }
+    ]
   }
 }
