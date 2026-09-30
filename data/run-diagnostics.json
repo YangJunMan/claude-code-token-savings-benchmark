@@ -283,5 +283,15 @@
         "summary": "turn 33-36: bash 작업 디렉터리가 .token-bench/runs/.../workdir로 바뀐 상태에서 git status/add를 실행해 변경사항이 안 보인다고 판단했고, 실제로는 워크트리 루트(top-level repo)에서 확인해야 했음을 뒤늦게 알아채 git rev-parse --show-toplevel과 재확인으로 바로잡음. 반복 실패로 이어지진 않았지만 두세 턴의 탐색 낭비가 발생함"
       }
     ]
+  },
+  "08cbb262aaea-base__r1": {
+    "summary": "명확한 반복이나 timeout, 토큰 급증 없이 탐색→구현→테스트→커밋 확인까지 정상적으로 완료된 실행",
+    "events": [
+      {
+        "turn": 31,
+        "kind": "other",
+        "summary": "turn 31~34: git add 후 staged diff가 비어 보여 git status/toplevel/check-ignore를 연이어 확인했는데, 원인은 workdir 자체가 .gitignore의 '.token-bench/' 규칙에 걸려 추적 대상에서 제외된 것이었다. 반복이라기보다 원인 파악을 위한 정상적인 디버깅 과정이며 실행에는 영향 없음."
+      }
+    ]
   }
 }
