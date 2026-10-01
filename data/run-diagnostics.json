@@ -293,5 +293,15 @@
         "summary": "turn 31~34: git add 후 staged diff가 비어 보여 git status/toplevel/check-ignore를 연이어 확인했는데, 원인은 workdir 자체가 .gitignore의 '.token-bench/' 규칙에 걸려 추적 대상에서 제외된 것이었다. 반복이라기보다 원인 파악을 위한 정상적인 디버깅 과정이며 실행에는 영향 없음."
       }
     ]
+  },
+  "370e84be518c-be-brief__r1": {
+    "summary": "큰 이탈 없이 구현→테스트→정리까지 정상 진행했으나, data 디렉터리가 .gitignore 대상임을 모르고 git add -A로 추적 시도했다가 경로를 착각해 git reset이 실패하는 작은 혼선이 있었다.",
+    "events": [
+      {
+        "turn": 31,
+        "kind": "repeated_misread",
+        "summary": "turn 31: turn 30에서 git status가 이미 저장소 루트 기준 상대경로(data/activity-log.csv 등)로 깔끔하게 표시했는데, 이를 무시하고 cd 전 디렉터리 깊이를 기준으로 '../../../../data/...' 형태의 잘못된 상대경로를 만들어 git reset을 호출해 'unknown revision or path not in the working tree' 오류가 발생했다."
+      }
+    ]
   }
 }
