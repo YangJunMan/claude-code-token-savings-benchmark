@@ -333,5 +333,15 @@
         "summary": "turn 25: git add 대상 경로를 잘못 짚어 .gitignore에 걸린 .token-bench 하위 작업 디렉터리에서 add를 시도했다가 실패, turn 26에서 실제 repo 루트를 확인하고 바로잡음"
       }
     ]
+  },
+  "5c74c1bdf3bc-rtk__r1": {
+    "summary": "turn 1~5에서 파일을 하나씩 순차적으로 Read하며 탐색만 반복하다가 timeout으로 종료됨",
+    "events": [
+      {
+        "turn": 5,
+        "kind": "timeout_stall",
+        "summary": "turn 5: 테스트 파일까지 읽은 뒤에도 코드 수정이나 구현 작업을 전혀 시작하지 못한 채 파일 열람 단계에 머물러 있었고, 전체 저장소를 하나씩 개별 Read로 훑는 탐색 방식이 비효율적으로 지속되며 구현 단계로 넘어가기 전에 timeout이 발생함"
+      }
+    ]
   }
 }
