@@ -343,5 +343,15 @@
         "summary": "turn 5: 테스트 파일까지 읽은 뒤에도 코드 수정이나 구현 작업을 전혀 시작하지 못한 채 파일 열람 단계에 머물러 있었고, 전체 저장소를 하나씩 개별 Read로 훑는 탐색 방식이 비효율적으로 지속되며 구현 단계로 넘어가기 전에 timeout이 발생함"
       }
     ]
+  },
+  "a885dd29b278-headroom__r1": {
+    "summary": "큰 반복이나 timeout 없이 구현→테스트→정리까지 순차적으로 진행되어 성공적으로 끝났으며, turn 37-40에서만 git 작업 디렉터리 경로를 착각해 잠시 헛도는 조사가 있었다.",
+    "events": [
+      {
+        "turn": 37,
+        "kind": "repeated_misread",
+        "summary": "turn 37: git diff --stat 및 untracked 파일 목록을 workdir 기준으로 확인하면서 '../../../../../data/*.csv' 같은 상위 경로의 무관한 파일들을 변경 대상으로 착각해 diffstat을 점검했고, turn 38-40까지 git toplevel/.gitignore/.git 존재 여부를 재확인하는 추가 조사가 이어졌다. 실제로는 .token-bench/ 디렉터리가 .gitignore에 걸려 작업 결과물이 git 추적 대상이 아니라는 점을 몰랐던 것이 원인이며, 이를 turn 39에서 git check-ignore로 확인한 뒤에야 상황을 파악했다."
+      }
+    ]
   }
 }
