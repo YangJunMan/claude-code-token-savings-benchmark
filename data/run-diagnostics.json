@@ -323,5 +323,15 @@
         "summary": "turn 31: data/ 경로가 .gitignore에 의해 무시된다는 사실을 모른 채 일반 git add를 시도해 실패했고, 바로 다음 턴에서야 -f 옵션으로 강제 추가해 동일한 파일 목록에 대해 두 번째 시도를 해야 했다."
       }
     ]
+  },
+  "42c3dddf4c01-be-brief__r1": {
+    "summary": "큰 반복이나 timeout 없이 탐색→구현→테스트→검증 순서로 정상 진행되어 성공적으로 종료됨",
+    "events": [
+      {
+        "turn": 25,
+        "kind": "other",
+        "summary": "turn 25: git add 대상 경로를 잘못 짚어 .gitignore에 걸린 .token-bench 하위 작업 디렉터리에서 add를 시도했다가 실패, turn 26에서 실제 repo 루트를 확인하고 바로잡음"
+      }
+    ]
   }
 }

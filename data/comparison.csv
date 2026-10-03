@@ -29,3 +29,4 @@ run_date,prompt_id,condition,runs,baseline_runs,processed_delta_pct,cost_delta_p
 2026-10-02,small,CAVEMAN-FULL,2,10,-42.9264,-31.4356,-49.2743,0.0,71.736,48.3119
 2026-10-02,small,HEADROOM,1,10,1.1706,-1.6794,4.067,0.0,71.736,48.3119
 2026-10-02,small,RTK,2,10,4.12,4.2004,5.3239,0.0,71.736,48.3119
+2026-10-03,small,BE_BRIEF,1,10,-40.8678,-27.9945,-45.9181,0.0,71.736,48.3119
