@@ -353,5 +353,25 @@
         "summary": "turn 37: git diff --stat 및 untracked 파일 목록을 workdir 기준으로 확인하면서 '../../../../../data/*.csv' 같은 상위 경로의 무관한 파일들을 변경 대상으로 착각해 diffstat을 점검했고, turn 38-40까지 git toplevel/.gitignore/.git 존재 여부를 재확인하는 추가 조사가 이어졌다. 실제로는 .token-bench/ 디렉터리가 .gitignore에 걸려 작업 결과물이 git 추적 대상이 아니라는 점을 몰랐던 것이 원인이며, 이를 turn 39에서 git check-ignore로 확인한 뒤에야 상황을 파악했다."
       }
     ]
+  },
+  "b3c19f803237-base__r1": {
+    "summary": "구현과 테스트 작성 후 테스트는 전부 통과했지만, git add -A가 작업 디렉터리 밖(.gitignore로 무시되는 .token-bench/)의 코드가 아니라 레포 루트의 data/ CSV 파일만 스테이징했다는 것을 늦게 깨닫고 되돌리려다 실패해 혼란이 생겼다.",
+    "events": [
+      {
+        "turn": 33,
+        "kind": "other",
+        "summary": "turn 33: cwd가 실제로는 .token-bench/runs/.../workdir인데도 git이 레포 루트(.../claude-code-token-savings-benchmark)를 toplevel로 반환해, 지금 작업 중인 gpu_platform 코드가 아니라 레포 루트의 기존 data/*.csv 변경만 git status/add에 걸린다는 점을 알아채지 못하고 diff --cached --stat으로 엉뚱한 경로를 걸러내려 시도했다."
+      },
+      {
+        "turn": 35,
+        "kind": "other",
+        "summary": "turn 35: git check-ignore로 gpu_platform/admission.py가 .gitignore의 .token-bench/ 규칙에 의해 무시된다는 것을 확인하고서야, 지금까지 작성한 구현/테스트 파일들이 처음부터 git 추적 대상이 아니었고 add -A가 담은 건 무관한 data/ CSV뿐이었다는 사실을 파악했다."
+      },
+      {
+        "turn": 36,
+        "kind": "other",
+        "summary": "turn 36: 무시된 파일 경로 문제를 되돌리려고 상대경로(../../../../../data/...)로 git reset을 시도했으나 'unknown revision or path not in the working tree' 오류로 실패했고, 이후 추가 조치 없이 그대로 다음 턴(구현 검증)으로 넘어가 data/ 변경 스테이징 상태가 미해결로 남았다."
+      }
+    ]
   }
 }
