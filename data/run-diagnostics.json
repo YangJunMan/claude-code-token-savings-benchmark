@@ -373,5 +373,22 @@
         "summary": "turn 36: 무시된 파일 경로 문제를 되돌리려고 상대경로(../../../../../data/...)로 git reset을 시도했으나 'unknown revision or path not in the working tree' 오류로 실패했고, 이후 추가 조치 없이 그대로 다음 턴(구현 검증)으로 넘어가 data/ 변경 스테이징 상태가 미해결로 남았다."
       }
     ]
+  },
+  "49ca12af7776-base__r1": {
+    "summary": "성공한 실행으로, 반복이나 타임아웃 없이 구현→테스트→정리까지 순차적으로 진행되었으나 turn 25~27에서 작업 디렉터리가 별도 git 저장소가 아니라는 사실을 인지하지 못해 git add/status가 상위 레포(.token-bench가 .gitignore에 걸림)를 대상으로 잘못 실행됐다.",
+    "events": [
+      {
+        "turn": 25,
+        "kind": "other",
+        "summary": "turn 25: 현재 위치가 .token-bench/runs/.../workdir(별도 .git 없는 하위 디렉터리)라는 점을 확인하지 않고 git add -A를 실행해, 실제로는 상위 레포 루트에서 명령이 처리되면서 작업 파일 대신 무관한 data/*.csv만 staged로 잡히는 결과가 나왔다.",
+        "verdict": "CONFIRMED"
+      },
+      {
+        "turn": 26,
+        "kind": "other",
+        "summary": "turn 26~27: git rev-parse --show-toplevel과 git check-ignore로 재확인한 결과 workdir에는 .git이 없고 .token-bench/ 전체가 .gitignore로 무시되고 있음을 발견했다 — turn 25의 git 작업이 애초에 성립하지 않는 전제(이 디렉터리가 독립적으로 커밋 가능하다는 가정) 위에서 시도된 것이었다.",
+        "verdict": "CONFIRMED"
+      }
+    ]
   }
 }
