@@ -400,5 +400,15 @@
         "summary": "turn 30: workdir에서 git add -A 후 diff --cached --stat을 보니 소스 변경 없이 data/*.csv만 staged로 나와, 실제 작업 디렉터리가 리포 루트가 아니라 .gitignore된 .token-bench/runs/... 하위라는 것을 뒤늦게 확인하는 점검(turn 31-34)으로 이어짐 — 반복은 아니고 1회성 확인."
       }
     ]
+  },
+  "d9e47090b3c4-caveman-full__r1": {
+    "summary": "구현-테스트-수정을 반복하며 성공적으로 완료, 중간에 불필요한 재확인 호출이 한 번 있었음",
+    "events": [
+      {
+        "turn": 25,
+        "kind": "other",
+        "summary": "turn 25: 직전에 읽었던 migrations/001_initial.sql을 변경 없이 다시 Read하려다 캐시된 결과를 참조하라는 응답을 받음(낭비성 호출, 반복으로 번지지는 않음)"
+      }
+    ]
   }
 }
