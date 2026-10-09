@@ -420,5 +420,15 @@
         "summary": "turn 41~44: git add -A 후 status가 workdir 바깥의 data/*.csv만 보여서, .token-bench/가 .gitignore에 걸려 실제 작업 파일(gpu_platform, tests 등)이 전혀 git에 add되지 않았음을 뒤늦게 확인하는 데 여러 turn을 썼다. 반복 작업은 아니었지만 git 상태 확인에 불필요하게 4turn이 소요됨."
       }
     ]
+  },
+  "2f4bba7595a9-be-brief__r1": {
+    "summary": "반복이나 timeout 없이 정상 진행되었고, turn 32-34에서 .gitignore에 걸린 data 디렉터리를 git add로 잘못 포함시켰다가 바로잡은 사소한 착오만 있었다.",
+    "events": [
+      {
+        "turn": 32,
+        "kind": "other",
+        "summary": "turn 32: git add -A로 전체를 스테이징하려다 .token-bench 경로가 .gitignore에 걸려 실패했고, turn 33에서 실제로는 작업 디렉터리가 리포 루트가 아닌 .token-bench/runs 하위 workdir이라 data/*.csv가 상대경로로 추적된 것을 확인한 뒤 turn 34에서 git reset으로 data를 제외시켜 바로잡았다."
+      }
+    ]
   }
 }
