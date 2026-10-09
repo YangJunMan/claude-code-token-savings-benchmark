@@ -430,5 +430,15 @@
         "summary": "turn 32: git add -A로 전체를 스테이징하려다 .token-bench 경로가 .gitignore에 걸려 실패했고, turn 33에서 실제로는 작업 디렉터리가 리포 루트가 아닌 .token-bench/runs 하위 workdir이라 data/*.csv가 상대경로로 추적된 것을 확인한 뒤 turn 34에서 git reset으로 data를 제외시켜 바로잡았다."
       }
     ]
+  },
+  "758530ac8d9b-headroom__r1": {
+    "summary": "실행 전체가 순차적으로 정상 진행되어 테스트와 cleanup까지 완료된 성공 사례이며 특이한 반복이나 멈춤은 없다.",
+    "events": [
+      {
+        "turn": 40,
+        "kind": "other",
+        "summary": "turn 40-42: git add -A가 저장소 바깥 상위 경로의 data/*.csv 파일들까지 스테이징한 것을 발견하고, .git이 작업 디렉터리 밖에 있다는 점을 확인한 뒤 git status로 원인을 점검함 — 실수를 바로 인지하고 대응했으므로 문제로 이어지지는 않음."
+      }
+    ]
   }
 }
