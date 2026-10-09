@@ -410,5 +410,15 @@
         "summary": "turn 25: 직전에 읽었던 migrations/001_initial.sql을 변경 없이 다시 Read하려다 캐시된 결과를 참조하라는 응답을 받음(낭비성 호출, 반복으로 번지지는 않음)"
       }
     ]
+  },
+  "95418676aad0-caveman-full__r1": {
+    "summary": "큰 반복이나 timeout 없이 탐색→구현→테스트→문서화를 순차적으로 진행해 성공적으로 완료된 실행",
+    "events": [
+      {
+        "turn": 41,
+        "kind": "other",
+        "summary": "turn 41~44: git add -A 후 status가 workdir 바깥의 data/*.csv만 보여서, .token-bench/가 .gitignore에 걸려 실제 작업 파일(gpu_platform, tests 등)이 전혀 git에 add되지 않았음을 뒤늦게 확인하는 데 여러 turn을 썼다. 반복 작업은 아니었지만 git 상태 확인에 불필요하게 4turn이 소요됨."
+      }
+    ]
   }
 }
