@@ -440,5 +440,15 @@
         "summary": "turn 40-42: git add -A가 저장소 바깥 상위 경로의 data/*.csv 파일들까지 스테이징한 것을 발견하고, .git이 작업 디렉터리 밖에 있다는 점을 확인한 뒤 git status로 원인을 점검함 — 실수를 바로 인지하고 대응했으므로 문제로 이어지지는 않음."
       }
     ]
+  },
+  "6ee23353db6d-be-brief__r1": {
+    "summary": "반복이나 멈춤 없이 구현→테스트→git add까지 정상 진행되었고, turn 46-48에서 git 루트가 상위 레포로 잡혀 변경 파일 경로가 뒤틀린 점만 특이사항",
+    "events": [
+      {
+        "turn": 46,
+        "kind": "other",
+        "summary": "turn 46-48: git add -A 실행 시 작업 디렉터리가 .token-bench/runs/.../workdir인데 git 루트는 상위 benchmark 레포로 잡혀, 실제 구현 파일(store.py 등)은 .gitignore로 무시되고 무관한 data/*.csv만 스테이징됨. .token-bench/가 gitignore 대상이라는 점을 뒤늦게 turn 48에서 확인했다"
+      }
+    ]
   }
 }
