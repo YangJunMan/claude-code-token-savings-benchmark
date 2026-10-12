@@ -13,8 +13,9 @@ def _write_summary(path: Path, rows: list[dict]) -> None:
             writer.writerow({col: row.get(col, "") for col in SUMMARY_COLUMNS})
 
 
-def _row(run_id, condition, *, run_date, processed=1000, cost=1.0, tax=100, quality=100):
+def _row(run_id, condition, *, run_date, processed=1000, cost=1.0, tax=100, quality=100, model=""):
     return {
+        "model": model,
         "run_date": run_date,
         "run_id": run_id,
         "condition": condition,
@@ -117,3 +118,26 @@ def test_presets_are_never_compared_against_each_other(tmp_path):
     assert len(rows) == 1
     assert rows[0]["prompt_id"] == "large"
     assert rows[0]["processed_delta_pct"] == "-10.0"  # 9000 기준, 1000은 무관
+
+
+def test_each_model_is_compared_against_its_own_base(tmp_path):
+    """모델이 바뀌면 이전 모델의 BASE가 새 모델 처치의 기준선에 섞이면 안 된다."""
+
+    rows = _comparison(tmp_path, [
+        _row("a-base__r1", "BASE", run_date="2026-10-01", processed=1000, model="model-a"),
+        _row("b-base__r1", "BASE", run_date="2026-10-02", processed=2000, model="model-b"),
+        _row("b-rtk__r1", "RTK", run_date="2026-10-03", processed=1000, model="model-b"),
+    ])
+
+    assert len(rows) == 1
+    assert rows[0]["model"] == "model-b"
+    assert rows[0]["baseline_runs"] == "1"
+    assert rows[0]["processed_delta_pct"] == "-50.0"
+
+
+def test_a_model_without_base_yields_no_comparison(tmp_path):
+    rows = _comparison(tmp_path, [
+        _row("a-base__r1", "BASE", run_date="2026-10-01", model="model-a"),
+        _row("b-rtk__r1", "RTK", run_date="2026-10-03", model="model-b"),
+    ])
+    assert rows == []

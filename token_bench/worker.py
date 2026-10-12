@@ -185,6 +185,7 @@ def build_command(
     isolation: str = DEFAULT_ISOLATION,
     claude_bin: str = CLAUDE_BIN,
     repo_root: Path = Path("."),
+    model: str = "",
 ) -> list[str]:
     """조건의 config_ref/plugin_dir 주입을 반영해 claude 호출 인자를 구성한다."""
 
@@ -204,6 +205,8 @@ def build_command(
         "--permission-mode",
         PERMISSION_MODE,
     ]
+    if model:
+        command.extend(["--model", model])
     for injection in injections:
         if injection.type == "config_ref":
             # claude는 작업 디렉터리(fixture 복사본)에서 돌기 때문에, 저장소
@@ -337,6 +340,7 @@ def run_once(
     claude_bin: str = CLAUDE_BIN,
     repo_root: Path = Path("."),
     cancel_event: threading.Event | None = None,
+    model: str = "",
 ) -> ProcessOutcome:
     """Claude Code 프로세스 하나를 시작해 timeout까지 관리하고 결과를 기록한다.
 
@@ -359,10 +363,12 @@ def run_once(
                 claude_bin=claude_bin,
                 repo_root=repo_root,
                 cancel_event=cancel_event,
+                model=model,
             )
 
     command = build_command(
-        prompt, injections, isolation=isolation, claude_bin=claude_bin, repo_root=repo_root
+        prompt, injections, isolation=isolation, claude_bin=claude_bin,
+        repo_root=repo_root, model=model,
     )
     # Windows는 subprocess가 shell=True 없이 확장자 없는 이름(PATH의 claude.cmd
     # 등)을 스스로 찾지 못한다(WinError 2) — bare 이름 그대로 CreateProcess에

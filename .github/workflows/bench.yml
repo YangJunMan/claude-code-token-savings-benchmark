@@ -58,6 +58,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       preset: ${{ steps.decide.outputs.preset }}
+      model: ${{ steps.decide.outputs.model }}
       candidates: ${{ steps.decide.outputs.candidates }}
       run: ${{ steps.decide.outputs.run }}
     steps:
@@ -90,7 +91,11 @@ jobs:
           # 있는 첫 조건을 고른다 — 도구가 사라진 조건 하나가 나머지 수집을 막지
           # 않게 한다.
           candidates=$(printf '%s' "$target" | python3 -c 'import json,sys; print(" ".join(json.load(sys.stdin)["condition_ids"]))')
+          # 측정 모델은 benchmark/models.json의 active 하나다. CLI 기본 모델에
+          # 맡기면 기본값이 바뀌는 날 시리즈가 조용히 갈라진다.
+          model=$(printf '%s' "$target" | python3 -c 'import json,sys; print(json.load(sys.stdin)["model"])')
           echo "preset=$preset" >> "$GITHUB_OUTPUT"
+          echo "model=$model" >> "$GITHUB_OUTPUT"
           echo "candidates=$candidates" >> "$GITHUB_OUTPUT"
           if [ "$preset" = "large" ] && [ "$FIRED_CRON" = "$HALF_HOUR_CRON" ]; then
             echo "run=false" >> "$GITHUB_OUTPUT"
@@ -173,6 +178,7 @@ jobs:
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           PRESET: ${{ needs.plan.outputs.preset }}
+          MODEL: ${{ needs.plan.outputs.model }}
           CANDIDATES: ${{ needs.plan.outputs.candidates }}
           MODE: ${{ inputs.mode || 'full' }}
         run: |
@@ -193,7 +199,7 @@ jobs:
               continue
             fi
             attempts=$((attempts + 1))
-            echo "이번 실험 시도: preset=$PRESET condition=$candidate"
+            echo "이번 실험 시도: preset=$PRESET model=$MODEL condition=$candidate"
 
             # `--isolation`을 고정하는 것이 중요하다. 지정하지 않으면 격리 모드가
             # 배치 내용에서 유도되어, 조건 하나씩 돌리는 지금 구조에서는 base가
@@ -201,7 +207,8 @@ jobs:
             # 것이 생겨 조건 비교가 무너진다. 과거 데이터도 5조건 한 배치라
             # project-settings였다.
             python3 -m token_bench estimate --only "$candidate" --isolation "$ISOLATION" \
-              --timeout-seconds "$TIMEOUT_SECONDS" --preset "$PRESET" > /tmp/plan.json
+              --timeout-seconds "$TIMEOUT_SECONDS" --preset "$PRESET" \
+              --model "$MODEL" > /tmp/plan.json
             batch_id=$(python3 -c 'import json;print(json.load(open("/tmp/plan.json"))["batch_id"])')
             digest=$(python3 -c 'import json;print(json.load(open("/tmp/plan.json"))["digest"])')
             plan=".token-bench/runs/$batch_id/plan.json"

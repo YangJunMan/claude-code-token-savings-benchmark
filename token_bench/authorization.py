@@ -47,6 +47,7 @@ class EstimatePlan:
     isolation: str
     auth: dict
     cost_disclaimer: str
+    model: str = ""
 
     def to_dict(self) -> dict:
         return {
@@ -58,6 +59,7 @@ class EstimatePlan:
             "isolation": self.isolation,
             "auth": self.auth,
             "cost_disclaimer": self.cost_disclaimer,
+            "model": self.model,
         }
 
 
@@ -69,6 +71,7 @@ def build_estimate(
     auth: dict,
     isolation: str,
     tool_fingerprints: dict[str, tuple[dict, ...]] | None = None,
+    model: str = "",
 ) -> EstimatePlan:
     """준비된 실행 목록에 대한 확인 가능한 계획을 만든다.
 
@@ -100,6 +103,7 @@ def build_estimate(
         "api_provider": auth.get("api_provider"),
         "timeout_seconds": timeout_seconds,
         "isolation": isolation,
+        "model": model,
         "tool_fingerprints": [r["tool_fingerprints"] for r in runs],
     }
 
@@ -112,6 +116,7 @@ def build_estimate(
         isolation=isolation,
         auth=auth,
         cost_disclaimer=SUBSCRIPTION_COST_DISCLAIMER,
+        model=model,
     )
 
 
@@ -167,6 +172,7 @@ def load_plan(path: Path) -> EstimatePlan:
             isolation=raw["isolation"],
             auth=raw["auth"],
             cost_disclaimer=raw["cost_disclaimer"],
+            model=raw.get("model", ""),
         )
     except KeyError as exc:
         raise AuthorizationError(f"계획 파일에 필드가 없다: {exc}") from exc

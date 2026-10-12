@@ -205,7 +205,7 @@ def _delta_pct(treatment: float, base: float) -> float | None:
 COMPARISON_COLUMNS = (
     "run_date", "prompt_id", "condition", "runs", "baseline_runs",
     "processed_delta_pct", "cost_delta_pct", "tax_delta_pct", "quality_delta",
-    "noise_processed_pct", "noise_cost_pct",
+    "noise_processed_pct", "noise_cost_pct", "model",
 )
 
 
@@ -288,7 +288,7 @@ def _rebuild_comparison(summary_path: Path, comparison_path: Path) -> None:
         quality = row.get("quality_score")
         if quality in (None, ""):
             continue  # 평가 안 돌린 실행은 quality delta에 넣을 수 없다.
-        by_prompt.setdefault(row.get("prompt_id", ""), []).append({
+        by_prompt.setdefault((row.get("model", ""), row.get("prompt_id", "")), []).append({
             "condition": row["condition"],
             "processed": float(row["processed_tokens"]),
             "cost": float(row["cost_usd"]),
@@ -298,8 +298,8 @@ def _rebuild_comparison(summary_path: Path, comparison_path: Path) -> None:
         })
 
     out_rows = []
-    for prompt_id in sorted(by_prompt):
-        runs = by_prompt[prompt_id]
+    for model, prompt_id in sorted(by_prompt):
+        runs = by_prompt[(model, prompt_id)]
         base_runs = [r for r in runs if r["condition"] == BASELINE_CONDITION]
         if not base_runs:
             continue
@@ -310,7 +310,7 @@ def _rebuild_comparison(summary_path: Path, comparison_path: Path) -> None:
         for run_date in sorted(by_date):
             window = _baseline_window(base_runs, run_date)
             for row in _comparison_rows_for_date(by_date[run_date], window):
-                out_rows.append([run_date, prompt_id, *row])
+                out_rows.append([run_date, prompt_id, *row, model])
 
     comparison_path.parent.mkdir(parents=True, exist_ok=True)
     with comparison_path.open("w", newline="", encoding="utf-8") as stream:
@@ -422,11 +422,12 @@ RUNS_PER_PRESET = 30
 
 
 def successful_runs_by_condition(
-    summary_path: Path, *, prompt_id: str
+    summary_path: Path, *, prompt_id: str, model: str | None = None
 ) -> dict[str, int]:
     """한 프리셋에서 조건별로 성공한 실행이 몇 건 쌓였는지 센다.
 
-    `succeeded`만 센다 — 중간에 끊긴 실행은 그 조건의 표본이 아니다.
+    `succeeded`만 센다 — 중간에 끊긴 실행은 그 조건의 표본이 아니다. `model`을
+    주면 그 모델의 실행만 센다 — 모델마다 표본을 따로 채운다.
     """
 
     counts: dict[str, int] = {}
@@ -435,6 +436,8 @@ def successful_runs_by_condition(
     with summary_path.open("r", encoding="utf-8", newline="") as f:
         for row in csv.DictReader(f):
             if row.get("prompt_id") != prompt_id:
+                continue
+            if model is not None and row.get("model") != model:
                 continue
             if row.get("terminal_reason") != "succeeded":
                 continue
@@ -448,6 +451,7 @@ def condition_priority(
     *,
     preset: str,
     conditions_path: Path = Path("benchmark/conditions.json"),
+    model: str | None = None,
 ) -> list[str]:
     """표본이 적은 조건부터 나열한다. 한 tick은 이 중 실제로 돌 수 있는 첫 조건을 쓴다.
 
@@ -463,7 +467,7 @@ def condition_priority(
     """
 
     declared = [condition.id for condition in load_conditions(conditions_path)]
-    counts = successful_runs_by_condition(summary_path, prompt_id=preset)
+    counts = successful_runs_by_condition(summary_path, prompt_id=preset, model=model)
     return sorted(
         declared,
         key=lambda cid: (counts.get(_legacy_condition(cid), 0), declared.index(cid)),
@@ -488,6 +492,7 @@ def next_preset(
     *,
     conditions_path: Path = Path("benchmark/conditions.json"),
     runs_per_preset: int = RUNS_PER_PRESET,
+    model: str | None = None,
 ) -> str:
     """지금 돌려야 할 프리셋을 정한다.
 
@@ -501,7 +506,7 @@ def next_preset(
         _legacy_condition(condition.id) for condition in load_conditions(conditions_path)
     ]
     for preset in PRESET_SEQUENCE:
-        counts = successful_runs_by_condition(summary_path, prompt_id=preset)
+        counts = successful_runs_by_condition(summary_path, prompt_id=preset, model=model)
         if any(counts.get(condition, 0) < runs_per_preset for condition in conditions):
             return preset
     return PRESET_SEQUENCE[-1]

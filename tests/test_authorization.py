@@ -187,3 +187,16 @@ def test_load_plan_invalid_json_raises(tmp_path):
     path.write_text("{not json", encoding="utf-8")
     with pytest.raises(AuthorizationError, match="JSON"):
         load_plan(path)
+
+
+def test_changing_model_changes_digest():
+    plan1 = build_estimate(
+        [_workspace()], batch_id="batch1", timeout_seconds=60, auth=SUBSCRIPTION_AUTH,
+        isolation="safe-mode", model="model-a",
+    )
+    plan2 = build_estimate(
+        [_workspace()], batch_id="batch1", timeout_seconds=60, auth=SUBSCRIPTION_AUTH,
+        isolation="safe-mode", model="model-b",
+    )
+    assert plan1.digest != plan2.digest
+    assert plan1.to_dict()["model"] == "model-a"
