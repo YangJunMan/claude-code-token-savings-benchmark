@@ -270,3 +270,16 @@ def test_delete_job_rejects_unknown_run_id(tmp_path):
     db_path = tmp_path / "state.db"
     with pytest.raises(JobStoreError):
         delete_job("does-not-exist", db_path=db_path)
+
+
+def test_enqueue_keeps_the_planned_model(tmp_path):
+    plan = build_estimate(
+        [_workspace()], batch_id="batch1", timeout_seconds=60,
+        auth=SUBSCRIPTION_AUTH, isolation="safe-mode", model="model-a",
+    )
+    approval = approve(plan, confirmed_digest=plan.digest)
+
+    jobs = enqueue(plan, approval, db_path=tmp_path / "state.db")
+
+    assert jobs[0].model == "model-a"
+    assert get_job(jobs[0].run_id, db_path=tmp_path / "state.db").model == "model-a"

@@ -163,3 +163,17 @@ def test_priority_lists_every_condition_least_sampled_first(tmp_path):
     assert set(order) == {"base", "be-brief", "headroom", "caveman-full", "rtk"}
     # 첫 조건은 next_condition과 같아야 한다.
     assert order[0] == next_condition(path, preset="small", conditions_path=CONDITIONS)
+
+
+def test_counts_only_the_requested_model(tmp_path):
+    """새 모델이 active가 되면 이전 모델의 표본은 이번 모델의 진행도가 아니다."""
+
+    old = _runs("small", per_condition={label: RUNS_PER_PRESET for label in LABELS})
+    for row in old:
+        row["model"] = "model-old"
+    path = _summary(tmp_path / "run-summary.csv", old)
+
+    assert next_preset(path, conditions_path=CONDITIONS, model="model-old") == "large"
+    assert next_preset(path, conditions_path=CONDITIONS, model="model-new") == "small"
+    assert successful_runs_by_condition(path, prompt_id="small", model="model-new") == {}
+    assert next_preset(path, conditions_path=CONDITIONS) == "large"  # 모델 미지정: 전체

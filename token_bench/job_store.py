@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     snapshot_path TEXT NOT NULL,
     timeout_seconds INTEGER NOT NULL,
     isolation TEXT NOT NULL DEFAULT 'safe-mode',
+    model TEXT NOT NULL DEFAULT '',
     tool_fingerprints_json TEXT NOT NULL DEFAULT '[]',
     status TEXT NOT NULL,
     enqueued_at TEXT NOT NULL,
@@ -69,6 +70,7 @@ class JobRecord:
     status: str
     enqueued_at: str
     tool_fingerprints: tuple[dict, ...] = ()
+    model: str = ""
     started_at: str | None = None
     finished_at: str | None = None
     duration_seconds: float | None = None
@@ -90,6 +92,7 @@ class JobRecord:
             "snapshot_path": self.snapshot_path,
             "timeout_seconds": self.timeout_seconds,
             "isolation": self.isolation,
+            "model": self.model,
             "status": self.status,
             "enqueued_at": self.enqueued_at,
             "tool_fingerprints": list(self.tool_fingerprints),
@@ -136,6 +139,16 @@ def _add_missing_isolation_column(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _add_missing_model_column(conn: sqlite3.Connection) -> None:
+    """모델을 고정하지 않던 시절의 상태 저장소를 그대로 이어 쓰게 한다."""
+
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(jobs);")}
+    if "model" in columns:
+        return
+    conn.execute("ALTER TABLE jobs ADD COLUMN model TEXT NOT NULL DEFAULT '';")
+    conn.commit()
+
+
 def _add_missing_tool_fingerprints_column(conn: sqlite3.Connection) -> None:
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(jobs);")}
     if "tool_fingerprints_json" in columns:
@@ -170,6 +183,7 @@ def _connect(db_path: Path) -> sqlite3.Connection:
     _drop_legacy_max_turns(conn)
     _add_missing_isolation_column(conn)
     _add_missing_tool_fingerprints_column(conn)
+    _add_missing_model_column(conn)
     return conn
 
 
@@ -186,6 +200,7 @@ def _row_to_record(row: sqlite3.Row) -> JobRecord:
         snapshot_path=row["snapshot_path"],
         timeout_seconds=row["timeout_seconds"],
         isolation=row["isolation"],
+        model=row["model"],
         status=row["status"],
         enqueued_at=row["enqueued_at"],
         tool_fingerprints=tuple(json.loads(row["tool_fingerprints_json"])),
@@ -256,9 +271,9 @@ def enqueue(
                     INSERT INTO jobs (
                         run_id, digest, batch_id, condition_id, repeat_index,
                         content_id, workdir, snapshot_path,
-                        timeout_seconds, isolation, tool_fingerprints_json,
+                        timeout_seconds, isolation, tool_fingerprints_json, model,
                         status, enqueued_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?)
                     """,
                     (
                         run["run_id"],
@@ -272,6 +287,7 @@ def enqueue(
                         plan.timeout_seconds,
                         plan.isolation,
                         json.dumps(run.get("tool_fingerprints", []), sort_keys=True),
+                        plan.model,
                         now,
                     ),
                 )

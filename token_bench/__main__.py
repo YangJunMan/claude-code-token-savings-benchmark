@@ -31,6 +31,7 @@ from token_bench.job_store import (
     list_jobs,
     requeue_job,
 )
+from token_bench.models import DEFAULT_MODELS_PATH, ModelsError, active_model
 from token_bench.preflight import check as preflight_check, split_by_availability
 from token_bench.collect import (
     DEFAULT_ACTIVITY_PATH,
@@ -201,6 +202,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="격리 모드를 직접 지정한다. 지정하지 않으면 배치 내용에서 유도한다 — "
         "조건 하나씩 따로 돌리는 무인 실행은 시리즈 전체에 같은 값을 지정해야 한다.",
     )
+    estimate_parser.add_argument(
+        "--model",
+        default="",
+        help="측정 모델 id를 claude --model로 고정한다. 지정하지 않으면 CLI 기본 모델을 쓴다 — "
+        "무인 실행은 시리즈 전체에 같은 값을 지정해야 한다.",
+    )
     _add_selection_args(estimate_parser)
 
     approve_parser = subparsers.add_parser(
@@ -229,6 +236,12 @@ def _build_parser() -> argparse.ArgumentParser:
     next_target_parser = subparsers.add_parser(
         "next-target",
         help="다음에 돌려야 할 프리셋과 조건을 JSON으로 출력한다(무인 스케줄러용).",
+    )
+    next_target_parser.add_argument(
+        "--models",
+        type=Path,
+        default=DEFAULT_MODELS_PATH,
+        help=f"측정 모델 목록 경로 (기본값: {DEFAULT_MODELS_PATH})",
     )
     next_target_parser.add_argument(
         "--summary",
@@ -475,6 +488,7 @@ def _run_estimate(
     exclude: list[str] | None = None,
     skip_unavailable: bool = False,
     isolation: str | None = None,
+    model: str = "",
 ) -> int:
     try:
         runs = inspect_conditions(conditions_path, include=include, exclude=exclude)
@@ -530,6 +544,7 @@ def _run_estimate(
             workspace.run_id: report.tool_fingerprints
             for workspace, report in zip(workspaces, reports)
         },
+        model=model,
     )
 
     plan_path = DEFAULT_RUNS_ROOT / batch_id / "plan.json"
@@ -651,6 +666,7 @@ def _process_claimed_job(
             isolation=job.isolation,
             repo_root=run_root,
             cancel_event=cancel_event,
+            model=job.model,
         )
     except WorkerError as exc:
         print(f"오류: {exc}", file=sys.stderr)
@@ -904,6 +920,7 @@ def main(argv: list[str] | None = None) -> int:
             exclude=_split_csv_ids(args.exclude),
             skip_unavailable=args.skip_unavailable,
             isolation=args.isolation,
+            model=args.model,
         )
     if args.command == "approve":
         return _run_approve(args.plan, confirmed_digest=args.confirm)
@@ -923,14 +940,20 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "result":
         return _run_result(args.run_id, db_path=args.db)
     if args.command == "next-target":
-        preset = next_preset(args.summary, conditions_path=args.conditions)
+        try:
+            model = active_model(args.models)
+        except ModelsError as exc:
+            print(f"오류: {exc}", file=sys.stderr)
+            return 1
+        preset = next_preset(args.summary, conditions_path=args.conditions, model=model)
         order = condition_priority(
-            args.summary, preset=preset, conditions_path=args.conditions
+            args.summary, preset=preset, conditions_path=args.conditions, model=model
         )
         # `condition_ids`는 표본이 적은 순서다. 호출자는 앞에서부터 실제로 돌 수
         # 있는 첫 조건을 골라야 한다 — 도구가 없는 조건이 전체를 막지 않는다.
         print(json.dumps({
             "preset": preset,
+            "model": model,
             "condition_id": order[0],
             "condition_ids": order,
         }))

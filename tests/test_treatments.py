@@ -303,3 +303,10 @@ def test_is_usage_limit_error_matches_the_observed_session_limit_message():
     assert is_usage_limit_error("Usage limit reached, try again later")
     assert not is_usage_limit_error("task failed: expected 200, got 500")
     assert not is_usage_limit_error(None)
+
+
+def test_build_command_pins_the_model_only_when_given():
+    assert "--model" not in build_command("프롬프트", ())
+    command = build_command("프롬프트", (), model="model-a")
+    assert command[command.index("--model") + 1] == "model-a"
+    assert command[-1] == "프롬프트"
