@@ -460,5 +460,15 @@
         "summary": "turn 30: git diff --stat이 비어있자 변경사항이 반영 안 된 것으로 오인할 뻔했으나, turn 31~32에서 pwd/git rev-parse로 작업 디렉터리와 저장소 루트가 다른 중첩 경로 구조임을 확인하고 바로 정상 경로로 재확인함"
       }
     ]
+  },
+  "33d5375453ad-base__r1": {
+    "summary": "구현·테스트·문서를 순차적으로 작성해 테스트 통과까지 깔끔하게 끝냈지만, 마지막에 작업 디렉터리가 아닌 저장소 루트에서 git add -A를 실행해 무관한 data/ 디렉터리(.gitignore 대상)가 스테이징되는 혼선이 있었다.",
+    "events": [
+      {
+        "turn": 31,
+        "kind": "other",
+        "summary": "turn 31: cwd가 .token-bench/runs/.../workdir인 상태에서 'git add -A'를 실행했는데, 이는 실제로 저장소 루트(상위 경로)의 git 인덱스에 영향을 주어 .gitignore로 제외된 data/ 밑 파일들이 'A'(added)로 스테이징됐다. 이후 turn 32~33에서 git status와 .gitignore를 다시 확인하며 원인을 파악하는 데 턴을 더 썼다."
+      }
+    ]
   }
 }
