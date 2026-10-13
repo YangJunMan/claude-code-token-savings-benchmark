@@ -470,5 +470,25 @@
         "summary": "turn 31: cwd가 .token-bench/runs/.../workdir인 상태에서 'git add -A'를 실행했는데, 이는 실제로 저장소 루트(상위 경로)의 git 인덱스에 영향을 주어 .gitignore로 제외된 data/ 밑 파일들이 'A'(added)로 스테이징됐다. 이후 turn 32~33에서 git status와 .gitignore를 다시 확인하며 원인을 파악하는 데 턴을 더 썼다."
       }
     ]
+  },
+  "476c8ffecaf5-caveman-full__r1": {
+    "summary": "구현과 테스트는 순조롭게 끝났으나, 결과물을 커밋하는 단계에서 작업 디렉터리 경로를 레포 루트로 오인해 git add가 엉뚱한 상대경로를 가리키며 수차례 삽질했다",
+    "events": [
+      {
+        "turn": 41,
+        "kind": "repeated_misread",
+        "summary": "turn 41: workdir(.token-bench/runs/.../workdir)가 실제로는 별도의 샌드박스 디렉터리인데, git status 결과에 '../../../../../data/...'라는 상대경로가 나온 것을 보고도 이것이 현재 cwd 기준 상위 레포를 가리키는 정상 출력이라고 오해하여 바로 git add -A를 실행, 샌드박스 바깥의 data/ 파일들을 스테이징하려 했다"
+      },
+      {
+        "turn": 42,
+        "kind": "repeated_misread",
+        "summary": "turn 42: ls와 find로 .git 존재 여부를 확인했지만 여전히 cwd가 workdir인지 레포 루트인지 혼란스러워하며, 문제의 원인(최상위 레포의 git 인덱스에 샌드박스 경로가 상대경로로 잘못 추가된 것)을 파악하지 못한 채 재확인만 반복했다"
+      },
+      {
+        "turn": 43,
+        "kind": "repeated_misread",
+        "summary": "turn 43: 레포 루트로 cd한 뒤 git reset으로 잘못 스테이징된 경로를 되돌리려 했으나, 명령 실행 후 쉘 cwd가 다시 workdir로 리셋되어버려 '정리됐다'고 판단할 근거 없이 다음 turn에서 다시 상태를 확인해야 했다 — cwd가 매 Bash 호출마다 초기화된다는 환경 특성을 놓친 것이 반복 확인의 원인"
+      }
+    ]
   }
 }
