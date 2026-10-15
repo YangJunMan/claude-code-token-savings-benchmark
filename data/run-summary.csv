@@ -102,3 +102,4 @@ run_date,run_id,condition,prompt_id,cost_usd,quality_score,critical_pass,turns,m
 2026-10-13,a954ca3b4e46-base__r1,BASE,small,2.0261648,100,pass,40,1,,3897074,1153932,5963,2737179,0,claude-sonnet-5,855.2,succeeded,0,51,18643,,0,3926940,2737179
 2026-10-14,fdc246d15e21-be-brief__r1,BE_BRIEF,small,1.2625892,100,pass,36,1,,2433404,1037120,4823,1391461,0,claude-sonnet-5,457.8,succeeded,0,47,18643,,0,2463269,1391461
 2026-10-14,d3ea08e7bb71-headroom__r1,HEADROOM,small,1.7827334000000001,100,pass,48,1,,3537768,990008,6223,2541537,0,claude-sonnet-5,647.4,succeeded,0,59,0,,0,3559077,2541537
+2026-10-15,cfa1f2aa05ea-caveman-full__r1,CAVEMAN-FULL,small,1.9496289999999994,100,pass,44,1,,4196759,1305523,4167,2887069,0,claude-sonnet-5,715.2,succeeded,0,57,24066,,0,4227306,2887069

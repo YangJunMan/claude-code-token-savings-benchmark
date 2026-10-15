@@ -490,5 +490,15 @@
         "summary": "turn 43: 레포 루트로 cd한 뒤 git reset으로 잘못 스테이징된 경로를 되돌리려 했으나, 명령 실행 후 쉘 cwd가 다시 workdir로 리셋되어버려 '정리됐다'고 판단할 근거 없이 다음 turn에서 다시 상태를 확인해야 했다 — cwd가 매 Bash 호출마다 초기화된다는 환경 특성을 놓친 것이 반복 확인의 원인"
       }
     ]
+  },
+  "cfa1f2aa05ea-caveman-full__r1": {
+    "summary": "구현과 테스트는 순조롭게 완료됐고, data/ 디렉터리가 .gitignore에 걸려 결과 산출물이 git에 추가되지 않는 상황을 진단하는 데 일부 턴이 소모됐다.",
+    "events": [
+      {
+        "turn": 33,
+        "kind": "other",
+        "summary": "turn 33: git add -A && git diff --cached --stat 결과에 gpu_platform 등 구현 변경분 없이 data/*.csv만 나타나자, 이를 비정상으로 인식하고 turn 34~39에 걸쳐 git status/check-ignore/add -f로 원인을 추적했다. 실제로는 .gitignore:8에 data/ 규칙이 있어 결과 파일이 무시되고 있었을 뿐이며, 이를 확인하는 데 여러 번의 Bash 호출이 필요했다."
+      }
+    ]
   }
 }
