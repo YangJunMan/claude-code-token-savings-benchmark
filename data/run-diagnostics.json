@@ -510,5 +510,15 @@
         "summary": "turn 33: git add 결과가 '../../../../../data'처럼 상위 경로로 매핑되는 것을 보고서야 현재 workdir가 저장소 루트가 아닌 .token-bench/runs 하위 디렉터리임을 인지했고, turn 34~37에서 git reset과 toplevel 확인, .gitignore 체크를 거쳐 원인(실제 변경 파일은 커밋 대상이 아니라 .gitignore로 무시된 상태)을 파악했다. 추가 반복 호출로 이어지지는 않았지만 경로 혼동으로 두세 턴의 진단 작업이 더 들었다."
       }
     ]
+  },
+  "974afe841227-caveman-full__r1": {
+    "summary": "반복이나 멈춤 없이 계획대로 진행된 정상 실행: 탐색→구현→스키마 버그 발견 후 즉시 수정→테스트 통과까지 선형적으로 완료됨",
+    "events": [
+      {
+        "turn": 17,
+        "kind": "other",
+        "summary": "turn 17: 레거시 001_initial.sql 스키마에 없는 컬럼을 삽입하려다 sqlite3 오류가 발생했지만, turn 18-20에서 즉시 스키마와 migrations.py를 확인·수정해 반복 없이 해결됨"
+      }
+    ]
   }
 }
