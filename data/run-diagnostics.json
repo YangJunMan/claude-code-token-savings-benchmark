@@ -500,5 +500,15 @@
         "summary": "turn 33: git add -A && git diff --cached --stat 결과에 gpu_platform 등 구현 변경분 없이 data/*.csv만 나타나자, 이를 비정상으로 인식하고 turn 34~39에 걸쳐 git status/check-ignore/add -f로 원인을 추적했다. 실제로는 .gitignore:8에 data/ 규칙이 있어 결과 파일이 무시되고 있었을 뿐이며, 이를 확인하는 데 여러 번의 Bash 호출이 필요했다."
       }
     ]
+  },
+  "d2a1fa52f2cb-base__r1": {
+    "summary": "구현-테스트-검증을 순차적으로 진행해 반복이나 멈춤 없이 정상 완료됐고, 다만 git add 시점에 작업 디렉터리가 서브모듈 경로였음을 뒤늦게 깨닫는 작은 시행착오가 있었다.",
+    "events": [
+      {
+        "turn": 33,
+        "kind": "other",
+        "summary": "turn 33: git add 결과가 '../../../../../data'처럼 상위 경로로 매핑되는 것을 보고서야 현재 workdir가 저장소 루트가 아닌 .token-bench/runs 하위 디렉터리임을 인지했고, turn 34~37에서 git reset과 toplevel 확인, .gitignore 체크를 거쳐 원인(실제 변경 파일은 커밋 대상이 아니라 .gitignore로 무시된 상태)을 파악했다. 추가 반복 호출로 이어지지는 않았지만 경로 혼동으로 두세 턴의 진단 작업이 더 들었다."
+      }
+    ]
   }
 }
