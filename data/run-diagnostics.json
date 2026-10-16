@@ -540,5 +540,15 @@
         "summary": "turn 27: git status 결과 경로가 ../../../../../data/... 로 나오자, 실제로는 .token-bench/runs/.../workdir가 아닌 리포 루트에서 git이 실행되고 있었음을 발견. turn 28에서 .git 존재 여부와 .gitignore를 확인하는 추가 탐색이 필요해졌으나 반복이나 정체로 이어지지 않고 바로 본작업(코드 상태 점검)으로 복귀함."
       }
     ]
+  },
+  "1a89bdf74d53-base__r1": {
+    "summary": "큰 반복이나 timeout 없이 정상 완료됐으며, turn42~43에서 작업 디렉토리 혼동으로 인한 소규모 git 경로 오인이 있었다.",
+    "events": [
+      {
+        "turn": 42,
+        "kind": "other",
+        "summary": "turn 42: git status --short 결과가 '../../../../../data/...' 경로로 나타나, 실제로는 benchmark 레포 루트가 아닌 workdir 하위에서 git 명령을 실행해 staged 파일 경로가 상위로 거슬러 올라가는 것을 보고 혼란이 생겼다. turn 43에서 git rev-parse --show-toplevel로 실제 레포 루트를 확인해 바로 잡았으므로 반복이나 정체로 이어지지는 않았다."
+      }
+    ]
   }
 }

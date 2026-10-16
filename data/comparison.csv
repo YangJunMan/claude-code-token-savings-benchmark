@@ -69,7 +69,7 @@ run_date,prompt_id,condition,runs,baseline_runs,processed_delta_pct,cost_delta_p
 2026-10-15,small,CAVEMAN-FULL,2,10,-6.1938,-8.9109,-9.2805,0.0,39.5821,24.1396,claude-sonnet-5
 2026-10-15,small,HEADROOM,1,10,-23.6932,-18.4004,-20.5696,0.0,39.5821,24.1396,claude-sonnet-5
 2026-10-15,small,RTK,2,10,9.45,2.8648,7.5604,0.0,39.5821,24.1396,claude-sonnet-5
-2026-10-16,small,BE_BRIEF,1,10,-30.4716,-23.7414,-38.4655,0.0,39.9842,24.3804,claude-sonnet-5
-2026-10-16,small,CAVEMAN-FULL,1,10,-27.1274,-23.9309,-33.3025,0.0,39.9842,24.3804,claude-sonnet-5
-2026-10-16,small,HEADROOM,1,10,-13.9179,-7.6402,-7.5841,0.0,39.9842,24.3804,claude-sonnet-5
-2026-10-16,small,RTK,1,10,-13.9747,-8.7414,-17.3582,0.0,39.9842,24.3804,claude-sonnet-5
+2026-10-16,small,BE_BRIEF,1,10,-33.2765,-25.043,-40.9705,0.0,33.8557,25.6179,claude-sonnet-5
+2026-10-16,small,CAVEMAN-FULL,1,10,-30.0671,-25.2293,-36.0177,0.0,33.8557,25.6179,claude-sonnet-5
+2026-10-16,small,HEADROOM,1,10,-17.3906,-9.2166,-11.3463,0.0,33.8557,25.6179,claude-sonnet-5
+2026-10-16,small,RTK,1,10,-17.4451,-10.299,-20.7225,0.0,33.8557,25.6179,claude-sonnet-5
