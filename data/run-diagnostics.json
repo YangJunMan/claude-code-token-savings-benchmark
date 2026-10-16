@@ -520,5 +520,15 @@
         "summary": "turn 17: 레거시 001_initial.sql 스키마에 없는 컬럼을 삽입하려다 sqlite3 오류가 발생했지만, turn 18-20에서 즉시 스키마와 migrations.py를 확인·수정해 반복 없이 해결됨"
       }
     ]
+  },
+  "1ad9cdeb77ad-base__r1": {
+    "summary": "반복이나 멈춤 없이 탐색→구현→테스트→정리 순서로 정상 종료된 실행",
+    "events": [
+      {
+        "turn": 35,
+        "kind": "other",
+        "summary": "turn 35~38: git status에서 작업 디렉터리 경로가 아닌 상위 ../../../../../data 경로가 표시되어 커밋 대상이 이상하다고 판단, git check-ignore와 .git 존재 여부를 확인하는 추가 조사를 했으나 이는 .token-bench/ 디렉터리가 .gitignore에 걸려 있고 실제 git 루트가 workdir 상위라는 환경 구조 때문이며 반복이나 오류로 이어지지는 않음"
+      }
+    ]
   }
 }
