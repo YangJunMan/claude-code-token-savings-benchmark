@@ -530,5 +530,15 @@
         "summary": "turn 35~38: git status에서 작업 디렉터리 경로가 아닌 상위 ../../../../../data 경로가 표시되어 커밋 대상이 이상하다고 판단, git check-ignore와 .git 존재 여부를 확인하는 추가 조사를 했으나 이는 .token-bench/ 디렉터리가 .gitignore에 걸려 있고 실제 git 루트가 workdir 상위라는 환경 구조 때문이며 반복이나 오류로 이어지지는 않음"
       }
     ]
+  },
+  "38044e9135ac-caveman-full__r1": {
+    "summary": "구현과 테스트는 정상 진행됐고, 반복/정체 없이 turn 26-28에서 git 작업 디렉토리가 workdir 서브디렉토리였다는 점을 뒤늦게 깨닫고 경로를 재확인하는 정도의 작은 우회만 있었다.",
+    "events": [
+      {
+        "turn": 27,
+        "kind": "other",
+        "summary": "turn 27: git status 결과 경로가 ../../../../../data/... 로 나오자, 실제로는 .token-bench/runs/.../workdir가 아닌 리포 루트에서 git이 실행되고 있었음을 발견. turn 28에서 .git 존재 여부와 .gitignore를 확인하는 추가 탐색이 필요해졌으나 반복이나 정체로 이어지지 않고 바로 본작업(코드 상태 점검)으로 복귀함."
+      }
+    ]
   }
 }
