@@ -560,5 +560,15 @@
         "summary": "turn 35-37: git add -A -- gpu_platform migrations k8s .github docs tests 실행 후 diff --cached --stat에 의도치 않게 data/*.csv 등 벤치마크 측정 파일들이 걸려 나왔다. 실제로는 .gitignore에 data/가 명시돼 있고 작업 디렉터리가 .token-bench/runs/.../workdir 하위라 상대경로가 바깥 상위 data/ 디렉터리를 가리킨 것으로, check-ignore와 git reset으로 바로 확인하고 되돌려 문제 없이 넘어갔다."
       }
     ]
+  },
+  "8f5ed4f7b5dc-caveman-full__r1": {
+    "summary": "git add -A가 .gitignore로 제외된 data/ 디렉터리 밖 상위 경로를 상대경로로 긁어 혼란을 일으켰고, 이후 올바른 cwd에서 -f로 재시도해 해결했으며 전체적으로는 반복 없이 정상 종료됨",
+    "events": [
+      {
+        "turn": 37,
+        "kind": "other",
+        "summary": "turn 35-36: git add -A를 workdir 내부에서 실행했는데 git status가 ../../../../../data/... 형태의 상대경로를 출력해, 실제로는 data/가 .gitignore로 막혀 있다는 사실과 별개로 현재 위치가 저장소 루트가 아니라는 점을 먼저 확인해야 했음. turn 37에서 .gitignore를 확인해 data/ 전체가 의도적으로 무시되는 디렉터리임을 파악함"
+      }
+    ]
   }
 }
