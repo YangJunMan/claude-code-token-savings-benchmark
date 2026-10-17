@@ -550,5 +550,15 @@
         "summary": "turn 42: git status --short 결과가 '../../../../../data/...' 경로로 나타나, 실제로는 benchmark 레포 루트가 아닌 workdir 하위에서 git 명령을 실행해 staged 파일 경로가 상위로 거슬러 올라가는 것을 보고 혼란이 생겼다. turn 43에서 git rev-parse --show-toplevel로 실제 레포 루트를 확인해 바로 잡았으므로 반복이나 정체로 이어지지는 않았다."
       }
     ]
+  },
+  "3b07549fce48-base__r1": {
+    "summary": "반복이나 timeout 없이 구현→테스트→문서 정리까지 정상 진행됐고, 중간에 data/ 디렉터리가 git-ignore 대상임을 모르고 git add -A로 걸렸다가 바로 바로잡은 사소한 착오만 있었다.",
+    "events": [
+      {
+        "turn": 35,
+        "kind": "other",
+        "summary": "turn 35-37: git add -A -- gpu_platform migrations k8s .github docs tests 실행 후 diff --cached --stat에 의도치 않게 data/*.csv 등 벤치마크 측정 파일들이 걸려 나왔다. 실제로는 .gitignore에 data/가 명시돼 있고 작업 디렉터리가 .token-bench/runs/.../workdir 하위라 상대경로가 바깥 상위 data/ 디렉터리를 가리킨 것으로, check-ignore와 git reset으로 바로 확인하고 되돌려 문제 없이 넘어갔다."
+      }
+    ]
   }
 }
