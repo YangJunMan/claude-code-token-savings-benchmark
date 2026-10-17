@@ -76,4 +76,4 @@ run_date,prompt_id,condition,runs,baseline_runs,processed_delta_pct,cost_delta_p
 2026-10-17,small,BE_BRIEF,1,10,-34.8963,-28.565,-41.6508,0.0,34.3608,25.8301,claude-sonnet-5
 2026-10-17,small,CAVEMAN-FULL,2,10,-12.9728,-13.3393,-18.6282,0.0,34.3608,25.8301,claude-sonnet-5
 2026-10-17,small,HEADROOM,1,10,-37.1026,-30.3976,-38.6206,0.0,34.3608,25.8301,claude-sonnet-5
-2026-10-17,small,RTK,1,10,-32.9156,-17.7036,-36.2949,0.0,34.3608,25.8301,claude-sonnet-5
+2026-10-17,small,RTK,2,10,-13.3494,-9.2347,-17.43,0.0,34.3608,25.8301,claude-sonnet-5

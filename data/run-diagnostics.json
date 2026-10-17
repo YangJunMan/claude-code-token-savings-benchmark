@@ -570,5 +570,15 @@
         "summary": "turn 35-36: git add -A를 workdir 내부에서 실행했는데 git status가 ../../../../../data/... 형태의 상대경로를 출력해, 실제로는 data/가 .gitignore로 막혀 있다는 사실과 별개로 현재 위치가 저장소 루트가 아니라는 점을 먼저 확인해야 했음. turn 37에서 .gitignore를 확인해 data/ 전체가 의도적으로 무시되는 디렉터리임을 파악함"
       }
     ]
+  },
+  "84875f9cd067-rtk__r1": {
+    "summary": "데이터 디렉터리 커밋 시도에서 .gitignore로 무시되는 경로 혼동이 있었지만 곧 교정되어 전체 실행은 순조롭게 성공했다.",
+    "events": [
+      {
+        "turn": 42,
+        "kind": "other",
+        "summary": "turn 42: git add -A 결과가 workdir 기준 상대경로(../../../../../data/...)로 표시되어 실제로는 .gitignore의 data/ 규칙에 걸린 무관한 경로를 추가한 것으로 오인했고, 이를 확인하려 turn 43~46에서 toplevel 확인, reset, .gitignore 점검, git add -f로 재시도하는 과정이 필요했다. 반복이라기보다 경로 혼동에서 비롯된 3턴짜리 디버깅이었다."
+      }
+    ]
   }
 }
