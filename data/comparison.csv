@@ -73,3 +73,4 @@ run_date,prompt_id,condition,runs,baseline_runs,processed_delta_pct,cost_delta_p
 2026-10-16,small,CAVEMAN-FULL,1,10,-30.0671,-25.2293,-36.0177,0.0,33.8557,25.6179,claude-sonnet-5
 2026-10-16,small,HEADROOM,2,10,0.552,-0.4868,7.7391,0.0,33.8557,25.6179,claude-sonnet-5
 2026-10-16,small,RTK,1,10,-17.4451,-10.299,-20.7225,0.0,33.8557,25.6179,claude-sonnet-5
+2026-10-17,small,CAVEMAN-FULL,1,10,-21.3074,-20.5813,-28.7875,0.0,33.8557,25.6179,claude-sonnet-5
