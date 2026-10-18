@@ -590,5 +590,15 @@
         "summary": "turn 30~42: 'cannot start a transaction within a transaction' 오류의 원인을 단일 스레드 재현(turn 39)으로는 못 찾고, 동시성 테스트에서만 재현됨을 확인(turn 41~42)한 뒤에야 admission.py에서 커넥션이 이미 트랜잭션 안에 있는 상태로 다시 BEGIN을 호출하는 중첩 호출 경로를 찾아 수정함. 단순 반복이 아니라 가설을 좁혀가는 정상적인 디버깅 과정."
       }
     ]
+  },
+  "8d05cccd1708-base__r1": {
+    "summary": "구현부터 테스트, 문서, git 커밋 준비까지 순차적으로 진행했고 중간에 한 번 git 저장소 경로를 착각해 커밋 시도가 실패했으나 반복 없이 바로 수정하고 성공적으로 종료함.",
+    "events": [
+      {
+        "turn": 41,
+        "kind": "other",
+        "summary": "turn 41~43: git add 대상 디렉토리를 benchmark 작업 디렉토리(workdir) 기준으로 생각했지만 실제로는 상위 경로의 .git 저장소를 기준으로 동작해, git status에 엉뚱한 data/*.csv 경로가 찍히고 workdir에 .git이 없다는 걸 뒤늦게 확인함. 이는 반복이나 timeout으로 이어지지 않고 한 번의 확인(turn 42-43)으로 바로 정리됨."
+      }
+    ]
   }
 }
