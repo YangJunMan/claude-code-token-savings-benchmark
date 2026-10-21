@@ -175,4 +175,3 @@ class Transcript:
             for tool_id, name, inp in msgs[mid]:
                 out.append((turn, name, inp, results.get(tool_id, "")))
         return out
-

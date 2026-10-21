@@ -53,5 +53,3 @@ def file_lock(lock_path: Path):
     finally:
         _unlock(fp)
         fp.close()
-
-
