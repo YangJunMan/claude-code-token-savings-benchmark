@@ -1,15 +1,19 @@
 name: pages
 
-# web은 main, 측정 데이터는 data 브랜치에서 가져와 합친다. 두 브랜치를 모두
-# 트리거로 둔다 — paths 필터는 브랜치별로 나눠 쓸 수 없으므로 두 경로를 함께
-# 적는다. main의 `data/**`는 없고 data 브랜치의 `web/**`도 없으니 실제로는
-# "main의 web 변경" 또는 "data 브랜치의 데이터 추가"만 걸린다.
+# code는 main, 데이터는 data에서 가져온다. data는 workflow가 없는 orphan
+# 브랜치이며 GITHUB_TOKEN push는 다른 workflow를 시작하지 않는다.
+# 따라서 측정 완료는 default branch의 workflow_run으로 받는다.
 on:
   push:
-    branches: [main, data]
+    branches: [main]
     paths:
       - "web/**"
-      - "data/**"
+      - "scripts/build_site.py"
+      - ".github/workflows/pages.yml"
+  workflow_run:
+    workflows: [bench]
+    branches: [main]
+    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -23,12 +27,15 @@ concurrency:
 
 jobs:
   deploy:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
       # 측정 데이터는 main에 없다 — 봇이 data 브랜치에만 커밋한다.
       - uses: actions/checkout@v4
         with:
@@ -38,14 +45,11 @@ jobs:
       # fetch한다. 로컬에서 `python3 -m http.server`로 볼 때와 경로가 갈리지
       # 않는다. 루트 index.html은 /web/으로 보내는 리다이렉트다 — 이게 없으면
       # 사이트 루트 주소가 404가 된다.
-      - name: Assemble site
-        run: |
-          mkdir -p _site/web _site/data
-          cp -r web/. _site/web/
-          cp -r _data/data/. _site/data/
-          printf '%s\n' \
-            '<!doctype html><meta charset="utf-8"><link rel="icon" href="data:,">' \
-            '<meta http-equiv="refresh" content="0; url=web/">' > _site/index.html
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Assemble and verify all recorded experiments
+        run: python3 scripts/build_site.py --data-root _data/data --output _site
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site

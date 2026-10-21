@@ -8,9 +8,6 @@
 from __future__ import annotations
 
 import json
-import sys
-import threading
-import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -19,93 +16,32 @@ from token_bench.add_condition import append_condition
 from token_bench.authorization import (
     AuthorizationError,
     approve as approve_plan,
-    build_estimate,
     load_approval,
     load_plan,
     save_json,
 )
-from token_bench.conditions import ConditionError, expand_runs, needs_customizations, inspect as inspect_conditions, load_conditions
+from token_bench.conditions import ConditionError, expand_runs, load_conditions
+from token_bench.intake import IntakeError, create_plan
 from token_bench.job_store import (
     DEFAULT_DB_PATH,
     JobStoreError,
-    claim_next_queued,
     delete_job,
     enqueue as enqueue_jobs,
     get_job,
     list_jobs,
     retry_job,
 )
+from token_bench.queue_runner import QueueRunner as AutoWorker
 from token_bench.log_tail import tail as tail_log
-from token_bench.preflight import check as preflight_check, unavailable_reasons
-from token_bench.worker import WorkerLockError, worker_lock
+from token_bench.preflight import unavailable_reasons
 from token_bench.workspace import (
-    DEFAULT_RUNS_ROOT,
     WorkspaceError,
-    prepare_batch,
     resolve_prompt_path,
 )
-
-QUEUE_POLL_SECONDS = 2.0
 
 DEFAULT_CONDITIONS_PATH = Path("benchmark/conditions.json")
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8787
-
-
-class AutoWorker:
-    """서버가 켜져 있는 동안 큐에 올라오는 작업을 자동으로 실행한다.
-
-    웹에서 승인+등록만 하면 되고, 별도로 `token_bench work`를 돌릴 필요가
-    없다(사용자 요청). `worker_lock`은 그대로 쥐고 있어서, 같은 상태
-    저장소에 대고 사람이 `token_bench work`를 따로 돌리면 그쪽이
-    WorkerLockError로 막힌다 — 두 실행이 겹쳐 도는 것만 막는다.
-    """
-
-    def __init__(self, *, conditions_path: Path, db_path: Path):
-        self._conditions_path = conditions_path
-        self._db_path = db_path
-        self._lock = threading.Lock()
-        self._cancel_event = threading.Event()
-        self._current_run_id: str | None = None
-
-    def start(self) -> None:
-        threading.Thread(target=self._loop, daemon=True).start()
-
-    def stop_current(self) -> bool:
-        with self._lock:
-            if self._current_run_id is None:
-                return False
-            self._cancel_event.set()
-            return True
-
-    def _loop(self) -> None:
-        # 순환 import 회피(token_bench.__main__이 이 모듈을 import한다)
-        from token_bench.__main__ import _process_claimed_job, RATE_LIMIT_BACKOFF_SECONDS
-
-        try:
-            with worker_lock(self._db_path):
-                while True:
-                    job = claim_next_queued(db_path=self._db_path)
-                    if job is None:
-                        time.sleep(QUEUE_POLL_SECONDS)
-                        continue
-                    with self._lock:
-                        self._current_run_id = job.run_id
-                        self._cancel_event.clear()
-                    try:
-                        status = _process_claimed_job(
-                            job,
-                            self._conditions_path,
-                            db_path=self._db_path,
-                            cancel_event=self._cancel_event,
-                        )
-                    finally:
-                        with self._lock:
-                            self._current_run_id = None
-                    if status == "rate-limited":
-                        time.sleep(RATE_LIMIT_BACKOFF_SECONDS)
-        except WorkerLockError as exc:
-            print(f"자동 실행 worker를 시작할 수 없다: {exc}", file=sys.stderr)
 
 
 class ApiError(Exception):
@@ -162,48 +98,17 @@ def _handle_estimate(body: dict, *, conditions_path: Path) -> dict:
     except WorkspaceError as exc:
         raise ApiError(400, str(exc)) from exc
 
+    model = body.get("model", "")
+    if not isinstance(model, str):
+        raise ApiError(400, "model은 문자열이어야 한다.")
     try:
-        runs = inspect_conditions(conditions_path, include=include, exclude=exclude)
-    except ConditionError as exc:
-        raise ApiError(400, str(exc)) from exc
-
-    try:
-        workspaces = prepare_batch(
-            runs,
-            timeout_seconds=timeout_seconds,
-            task_prompt_path=prompt_path,
+        prepared = create_plan(
+            conditions_path, timeout_seconds=timeout_seconds,
+            task_prompt_path=prompt_path, include=include, exclude=exclude, model=model,
         )
-    except WorkspaceError as exc:
+    except IntakeError as exc:
         raise ApiError(400, str(exc)) from exc
-
-    reports = [preflight_check(run) for run in runs]
-    if not all(r.ok for r in reports):
-        problems = [p for r in reports for p in r.problems]
-        raise ApiError(400, "preflight 실패: " + "; ".join(problems))
-
-    auth = next((r.auth for r in reports if r.auth), {})
-    batch_id = workspaces[0].run_id.split("-", 1)[0]
-    # CLI의 estimate와 같은 규칙으로 배치 격리 모드를 정한다.
-    isolation = (
-        "project-settings"
-        if any(needs_customizations(run.injections) for run in runs)
-        else "safe-mode"
-    )
-    plan = build_estimate(
-        workspaces,
-        batch_id=batch_id,
-        timeout_seconds=timeout_seconds,
-        auth=auth,
-        isolation=isolation,
-        tool_fingerprints={
-            workspace.run_id: report.tool_fingerprints
-            for workspace, report in zip(workspaces, reports)
-        },
-    )
-    plan_path = DEFAULT_RUNS_ROOT / batch_id / "plan.json"
-    save_json(plan.to_dict(), plan_path)
-
-    return {"plan": plan.to_dict(), "plan_path": str(plan_path)}
+    return {"plan": prepared.plan.to_dict(), "plan_path": str(prepared.plan_path)}
 
 
 def _handle_approve(body: dict) -> dict:
@@ -441,10 +346,16 @@ def serve(
     `auto_run=False`로 끈다.
     """
 
-    auto_worker = AutoWorker(conditions_path=conditions_path, db_path=db_path)
-    if auto_run:
-        auto_worker.start()
+    auto_worker = AutoWorker(db_path=db_path)
     handler = make_handler(
         conditions_path=conditions_path, db_path=db_path, auto_worker=auto_worker
     )
-    return ThreadingHTTPServer((host, port), handler)
+    class LocalServer(ThreadingHTTPServer):
+        def server_close(self):
+            auto_worker.stop()
+            super().server_close()
+
+    server = LocalServer((host, port), handler)
+    if auto_run:
+        auto_worker.start()
+    return server

@@ -4,33 +4,26 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
-import time
-from datetime import datetime, timezone
 from pathlib import Path
 
 from token_bench.authorization import (
     AuthorizationError,
     approve as approve_plan,
-    build_estimate,
     load_approval,
     load_plan,
     save_json,
 )
 from token_bench.add_condition import append_condition, run_wizard
-from token_bench.conditions import ConditionError, needs_customizations, inspect as inspect_conditions
-from token_bench.evaluation import check as check_evaluation
+from token_bench.conditions import ConditionError, inspect as inspect_conditions
 from token_bench.job_store import (
     DEFAULT_DB_PATH,
     JobStoreError,
-    claim_next_queued,
     enqueue as enqueue_jobs,
-    finish_job,
     get_job,
     list_jobs,
-    requeue_job,
 )
+from token_bench.intake import IntakeError, create_plan
 from token_bench.models import DEFAULT_MODELS_PATH, ModelsError, active_model
 from token_bench.preflight import check as preflight_check, split_by_availability
 from token_bench.collect import (
@@ -43,24 +36,19 @@ from token_bench.collect import (
     next_preset,
 )
 from token_bench.publish import DEFAULT_OUTPUT_PATH as DEFAULT_PUBLISH_OUTPUT_PATH, publish as publish_results
-from token_bench.results import interrupted_reason, is_usage_limit_error, ResultsError, collect as collect_result, load as load_result, save as save_result
+from token_bench.queue_runner import QueueRunner
+from token_bench.results import ResultsError, load as load_result
 from token_bench.webapi import DEFAULT_HOST, DEFAULT_PORT, serve as serve_webapi
-from token_bench.worker import ISOLATION_MODES, WorkerError, WorkerLockError, build_env, run_once, worker_lock
+from token_bench.worker import ISOLATION_MODES
 from token_bench.workspace import (
-    DEFAULT_RUNS_ROOT,
     DEFAULT_TASK_PROMPT_PATH,
     PROMPT_PRESETS,
     WorkspaceError,
-    load_run_snapshot,
     prepare_batch,
     resolve_prompt_path,
 )
 
 DEFAULT_CONDITIONS_PATH = Path("benchmark/conditions.json")
-# 구독 사용 한도에 걸린 job을 재시도하기 전에 쉬는 시간. 정확한 한도 초기화
-# 시각을 CLI 출력에서 알 수 없어(is_usage_limit_error 참고), 고정 대기 후
-# 다시 시도하는 단순한 전략을 쓴다.
-RATE_LIMIT_BACKOFF_SECONDS = 1800
 
 
 def _add_selection_args(parser: argparse.ArgumentParser) -> None:
@@ -80,19 +68,6 @@ def _add_selection_args(parser: argparse.ArgumentParser) -> None:
         help="필요한 도구·플러그인이 없는 조건은 막지 말고 건너뛴다. clone 직후 "
         "설치 없이 돌릴 수 있는 조건만으로 실험할 때 쓴다.",
     )
-
-
-def _produced_any_output(stdout_path: str | None) -> bool:
-    if not stdout_path:
-        return False
-    path = Path(stdout_path)
-    return path.is_file() and path.stat().st_size > 0
-
-
-def _tail(stderr_path: str | None, limit: int = 300) -> str:
-    if not stderr_path or not Path(stderr_path).is_file():
-        return ""
-    return Path(stderr_path).read_text(encoding="utf-8", errors="replace").strip()[-limit:]
 
 
 def _drop_unavailable(runs, *, enabled: bool):
@@ -491,64 +466,18 @@ def _run_estimate(
     model: str = "",
 ) -> int:
     try:
-        runs = inspect_conditions(conditions_path, include=include, exclude=exclude)
-    except ConditionError as exc:
-        print(f"오류: {exc}", file=sys.stderr)
-        return 1
-
-    runs = _drop_unavailable(runs, enabled=skip_unavailable)
-    if not runs:
-        print("오류: 실행할 수 있는 조건이 없다.", file=sys.stderr)
-        return 1
-
-    try:
-        workspaces = prepare_batch(
-            runs,
-            timeout_seconds=timeout_seconds,
-            task_prompt_path=task_prompt_path,
+        prepared = create_plan(
+            conditions_path, timeout_seconds=timeout_seconds,
+            task_prompt_path=task_prompt_path, include=include, exclude=exclude,
+            skip_unavailable=skip_unavailable, isolation=isolation, model=model,
         )
-    except WorkspaceError as exc:
+    except IntakeError as exc:
         print(f"오류: {exc}", file=sys.stderr)
         return 1
-
-    reports = [preflight_check(run) for run in runs]
-    if not all(report.ok for report in reports):
-        for run, report in zip(runs, reports):
-            for problem in report.problems:
-                print(
-                    f"오류: [{run.condition_id}__r{run.repeat_index}] {problem}",
-                    file=sys.stderr,
-                )
-        return 1
-
-    auth = next((report.auth for report in reports if report.auth), {})
-    batch_id = workspaces[0].run_id.split("-", 1)[0]
-    # hook·plugin을 켜는 조건이 하나라도 있으면 배치 전체가 같은 격리 모드로
-    # 돈다. 조건마다 격리가 다르면 처치 말고도 달라지는 것이 생긴다.
-    #
-    # 배치에 조건 하나만 담으면 이 유도 결과가 조건마다 갈린다(base는 safe-mode,
-    # rtk는 project-settings). 그래서 조건을 하나씩 돌리는 무인 실행은
-    # `--isolation`으로 시리즈 전체에 같은 값을 못 박는다.
-    isolation = isolation or (
-        "project-settings"
-        if any(needs_customizations(run.injections) for run in runs)
-        else "safe-mode"
-    )
-    plan = build_estimate(
-        workspaces,
-        batch_id=batch_id,
-        timeout_seconds=timeout_seconds,
-        auth=auth,
-        isolation=isolation,
-        tool_fingerprints={
-            workspace.run_id: report.tool_fingerprints
-            for workspace, report in zip(workspaces, reports)
-        },
-        model=model,
-    )
-
-    plan_path = DEFAULT_RUNS_ROOT / batch_id / "plan.json"
-    save_json(plan.to_dict(), plan_path)
+    for run, reasons in prepared.skipped:
+        hint = f" 설치 안내: {run.repository_url}" if run.repository_url else ""
+        print(f"건너뜀: {run.condition_id} — {', '.join(reasons)}.{hint}", file=sys.stderr)
+    plan, plan_path = prepared.plan, prepared.plan_path
 
     print(json.dumps(plan.to_dict(), ensure_ascii=False, indent=2))
     print(
@@ -592,213 +521,16 @@ def _run_status(db_path: Path) -> int:
     return 0
 
 
-def _process_claimed_job(
-    job, conditions_path: Path, *, db_path: Path, cancel_event=None
-) -> str:
-    """선점된 작업 하나를 preflight 재확인부터 결과 저장까지 처리한다.
-
-    반환값은 job_store/worker/results가 인식하는 상태 문자열이다:
-    'succeeded'·'failed'는 측정된 결과(계속 진행 가능), 'blocked'·
-    'config-error'·'worker-error'는 인프라·승인 문제(순차 실행을 멈춰야 함)다.
-    'rate-limited'는 구독 사용 한도로 보여 이 job을 다시 큐에 넣었다는
-    뜻이다 — 호출자가 잠시 쉬었다가 계속 진행해야 한다(순차 실행을 완전히
-    멈추는 대신 나중에 이 job부터 다시 시도한다).
-    """
-
-    snapshot_path = Path(job.snapshot_path)
-    try:
-        run = load_run_snapshot(snapshot_path, expected_content_id=job.content_id)
-    except WorkspaceError as exc:
-        print(f"오류: snapshot을 읽을 수 없다: {exc}", file=sys.stderr)
-        return "config-error"
-
-    run_root = snapshot_path.parent
-    report = preflight_check(run, repo_root=run_root)
-    if not report.ok:
-        for problem in report.problems:
-            print(f"오류: {problem}", file=sys.stderr)
-        finish_job(
-            job.run_id,
-            status="blocked",
-            returncode=None,
-            finished_at=datetime.now(timezone.utc).isoformat(),
-            duration_seconds=0.0,
-            stdout_path="",
-            stderr_path="",
-            command_json="[]",
-            db_path=db_path,
-        )
-        return "blocked"
-
-    if report.tool_fingerprints != job.tool_fingerprints:
-        print(
-            "오류: 승인 이후 외부 도구 fingerprint가 변경되었다. estimate부터 다시 실행하라.",
-            file=sys.stderr,
-        )
-        finish_job(
-            job.run_id,
-            status="blocked",
-            returncode=None,
-            finished_at=datetime.now(timezone.utc).isoformat(),
-            duration_seconds=0.0,
-            stdout_path="",
-            stderr_path="",
-            command_json="[]",
-            db_path=db_path,
-        )
-        return "blocked"
-
-    workdir = Path(job.workdir)
-    prompt_path = workdir.parent / "prompt.md"
-    prompt = prompt_path.read_text(encoding="utf-8")
-    env = build_env(run.injections, base_env=dict(os.environ))
-    log_dir = workdir.parent / "logs"
-
-    try:
-        outcome = run_once(
-            run_id=job.run_id,
-            prompt=prompt,
-            injections=run.injections,
-            cwd=workdir,
-            timeout_seconds=job.timeout_seconds,
-            log_dir=log_dir,
-            env=env,
-            isolation=job.isolation,
-            repo_root=run_root,
-            cancel_event=cancel_event,
-            model=job.model,
-        )
-    except WorkerError as exc:
-        print(f"오류: {exc}", file=sys.stderr)
-        # 'running'으로 두면 다음 worker가 orphan으로 보고 큐로 되돌린다. 같은
-        # 이유로 또 죽으면서 뒤 후보의 차례가 영영 오지 않는다(2026-09-29
-        # headroom: proxy 실패 뒤 caveman-full이 한 번도 돌지 못했다).
-        finish_job(
-            job.run_id,
-            status="worker-error",
-            returncode=None,
-            finished_at=datetime.now(timezone.utc).isoformat(),
-            duration_seconds=0.0,
-            stdout_path="",
-            stderr_path="",
-            command_json="[]",
-            db_path=db_path,
-        )
-        return "worker-error"
-
-    # 프로세스가 이벤트 하나 남기지 못하고 끝났다면 측정값이 아니라 실행 오류다.
-    # `failed`로 기록하면 "과제 테스트 실패"와 구분되지 않고 공개 CSV에까지
-    # 빈 행으로 올라간다.
-    status = outcome.status
-    interrupted = interrupted_reason(outcome.stdout_path)
-    if status == "failed" and interrupted and is_usage_limit_error(interrupted):
-        print(
-            f"경고: 구독 사용 한도로 보인다 — 다시 큐에 넣고 잠시 후 재시도한다: {interrupted}",
-            file=sys.stderr,
-        )
-        requeue_job(job.run_id, db_path=db_path)
-        return "rate-limited"
-    if status == "failed" and interrupted:
-        print(
-            f"오류: 실행이 중간에 끊겼다 — 측정값으로 쓰지 않는다: {interrupted}",
-            file=sys.stderr,
-        )
-        status = "blocked"
-    elif status == "failed" and not _produced_any_output(outcome.stdout_path):
-        stderr_tail = _tail(outcome.stderr_path)
-        print(
-            f"오류: 모델 출력이 없는 실패 — 실행 환경 문제로 기록한다. {stderr_tail}",
-            file=sys.stderr,
-        )
-        status = "blocked"
-
-    finished = finish_job(
-        job.run_id,
-        status=status,
-        returncode=outcome.returncode,
-        finished_at=outcome.finished_at,
-        duration_seconds=outcome.duration_seconds,
-        stdout_path=outcome.stdout_path,
-        stderr_path=outcome.stderr_path,
-        command_json=json.dumps(list(outcome.command)),
-        db_path=db_path,
-    )
-
-    evaluation_report = check_evaluation(workdir)
-
-    result = collect_result(
-        finished,
-        outcome,
-        auth=report.auth or {},
-        claude_version=report.claude_version,
-        evaluation=evaluation_report,
-    )
-    save_result(result, workdir.parent / "result.json")
-
-    # succeeded 실행만 바로 공개 CSV(개요/실행상세/결과검증이 읽는 파일)에
-    # 반영한다. failed/blocked(rate limit 등 인프라 문제)까지 자동으로 올리면
-    # 지저분한 데이터가 그대로 웹에 노출된다 — 사용자 결정.
-    if result.status == "succeeded":
-        collect_activity(db_path=db_path)
-        publish_results(db_path=db_path)
-
-    print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
-    return result.status
-
-
-def _run_work_once(conditions_path: Path, *, db_path: Path) -> int:
-    job = claim_next_queued(db_path=db_path)
-    if job is None:
-        print("대기 중인 작업이 없다.", file=sys.stderr)
-        return 0
-
-    status = _process_claimed_job(job, conditions_path, db_path=db_path)
-    return 0 if status == "succeeded" else 1
+def _run_work_once(*, db_path: Path) -> int:
+    return QueueRunner(db_path=db_path).run(once=True)
 
 
 def _run_work_loop(
-    conditions_path: Path,
-    *,
-    db_path: Path,
-    poll_interval_seconds: float,
-    exit_when_empty: bool,
+    *, db_path: Path, poll_interval_seconds: float, exit_when_empty: bool,
 ) -> int:
-    """큐가 비면 대기하며 선언된 조건·repeat을 순서대로 끝까지 처리한다.
-
-    인증·preflight 실패나 timeout처럼 결과가 불명확한 상태에서는 자동
-    재시도 없이 남은 작업 처리를 멈춘다. 과제 테스트 실패('failed')는
-    측정된 결과이므로 다음 작업으로 계속 진행한다.
-    """
-
-    try:
-        with worker_lock(db_path):
-            while True:
-                job = claim_next_queued(db_path=db_path)
-                if job is None:
-                    if exit_when_empty:
-                        print("대기 중인 작업이 없다. 종료한다.", file=sys.stderr)
-                        return 0
-                    time.sleep(poll_interval_seconds)
-                    continue
-
-                status = _process_claimed_job(job, conditions_path, db_path=db_path)
-                if status == "rate-limited":
-                    print(
-                        f"{RATE_LIMIT_BACKOFF_SECONDS}초 쉬었다가 다시 시도한다.",
-                        file=sys.stderr,
-                    )
-                    time.sleep(RATE_LIMIT_BACKOFF_SECONDS)
-                    continue
-                if status not in ("succeeded", "failed"):
-                    print(
-                        f"인프라·승인 문제로 남은 작업 처리를 멈춘다 "
-                        f"(run_id={job.run_id}, status={status}).",
-                        file=sys.stderr,
-                    )
-                    return 1
-    except WorkerLockError as exc:
-        print(f"오류: {exc}", file=sys.stderr)
-        return 1
+    return QueueRunner(db_path=db_path).run(
+        poll_interval_seconds=poll_interval_seconds, exit_when_empty=exit_when_empty,
+    )
 
 
 def _run_result(run_id: str, *, db_path: Path) -> int:
@@ -930,9 +662,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_status(args.db)
     if args.command == "work":
         if args.once:
-            return _run_work_once(args.conditions, db_path=args.db)
+            return _run_work_once(db_path=args.db)
         return _run_work_loop(
-            args.conditions,
             db_path=args.db,
             poll_interval_seconds=args.poll_interval_seconds,
             exit_when_empty=args.exit_when_empty,

@@ -6,6 +6,8 @@
 > 검증 없이 AI로 작성한 글들이 너무 많아서 불편합니다.
 > 신뢰성 있는 정보를 직접 찾아보고 직접 실험해 봅시다.
 
+**2026-10-21 추가 측정 종료.** 모델 업데이트 속도와 구독 토큰 부족으로 자동 측정·수정을 중지했습니다. 기존 데이터와 진단은 보존하며, 관측 결과와 한계는 [측정 종료 보고서](docs/FINAL_REPORT.md)에 정리했습니다. 아래 실행 방법은 수동 재현용입니다.
+
 `Headroom`, `Caveman`, `RTK`, 그리고 단순한 `be brief` 지시가 정말로 Claude Code의
 토큰과 비용을 줄여 주는지 **본인의 Claude 구독으로 직접 재 보는** 도구입니다.
 같은 개발 과제(SQLite 기반 GPU 작업 admission service)를 조건만 바꿔 실행하고,
@@ -184,6 +186,10 @@ python3.11 -m token_bench work --exit-when-empty   # 여기서부터 구독 사�
 
 ## 최신 결과
 
+누적 데이터와 최종 집계는 [측정 종료 보고서](docs/FINAL_REPORT.md)를 기준으로 봅니다.
+
+### 2026-09-16 초기 회차
+
 2026-09-16 회차, 프리셋 `small`, 조건별 1회, `claude-sonnet-5`.
 
 | 조건 | 비용 (API-equivalent) | BASE 대비 비용 | BASE 대비 처리 토큰 | turn | 공개 테스트 |
@@ -202,7 +208,7 @@ python3.11 -m token_bench work --exit-when-empty   # 여기서부터 구독 사�
 (`AttributeError`, turn 29 실패 → turn 31 수정)로 turn 수가 늘어 압축 효과와 무관하게
 오염된 데이터라 판단해 뺐습니다. 위 표는 그 버그 없이 끝난 두 번째 실행입니다.
 
-회차가 쌓이면 웹 대시보드가 자동으로 반영합니다.
+누적 결과는 웹 대시보드에서 볼 수 있습니다. 추가 자동 측정은 중지했습니다.
 
 ## 핵심 지표: context tax
 
@@ -294,6 +300,7 @@ quickstart.ps1      Windows 실행 스크립트
 
 | 문서 | 내용 |
 |---|---|
+| [FINAL_REPORT.md](docs/FINAL_REPORT.md) | 측정 종료 시점의 데이터, 관측 결과, 한계와 검증 |
 | [ACTIVITY-LOG.md](docs/ACTIVITY-LOG.md) | context tax 정의, 검증 방법, 데이터 스키마 |
 | [ADDING-A-SKILL.md](docs/ADDING-A-SKILL.md) | 새 절약법 선언 방법, 아직 선언할 수 없는 조건 |
 | [FULL_REPORT.md](docs/FULL_REPORT.md) | 2026-09-06 회차 상세 분석 (지난 파이프라인 기준, 원본 CSV는 제거됨) |

@@ -108,8 +108,8 @@ CLI 기본 모델에 맡기면 기본값이 바뀌는 날 시리즈가 조용히
   `small` 30건부터 다시 채운다.
 - `comparison.csv`는 `(model, prompt_id)`마다 그 모델의 BASE를 기준선으로 쓴다. 다른
   모델의 BASE는 섞이지 않는다. 행에 `model` 열이 붙는다.
-- 아직 하지 않은 것: 웹의 모델 선택 뷰(모델이 둘 이상이면 같은 날짜·조건 행이
-  겹쳐 보인다), `fixture_hash`로 fixture·프롬프트 변경을 시리즈 경계로 삼는 것.
+- 웹은 모델·프롬프트 선택을 지원한다. 여러 조합을 한꺼번에 보는 경우 전체 기록을 보여 주고 비교 평균은 합치지 않는다.
+- 아직 하지 않은 것: `fixture_hash`로 fixture·프롬프트 변경을 시리즈 경계로 삼는 것.
 
 ### 비교 기준선
 
@@ -139,11 +139,27 @@ delta에 직접 반영된다. `noise_processed_pct`·`noise_cost_pct`가 그 변
   대상이 아니다. 바뀌면 과거 데이터와 비교할 수 없다.
 
 ### `pages.yml` — 배포
-- 트리거는 `branches: [main, data]` + `paths: ["web/**", "data/**"]`. paths 필터를
-  브랜치별로 나눠 쓸 수 없어 두 경로를 함께 적었다 — main에 `data/**`가 없고 data
-  브랜치에 `web/**`가 없으므로 실제로 걸리는 것은 "main의 web 변경" 또는 "data
-  브랜치의 결과 추가"뿐이다.
-- `web/`은 main, 데이터는 `data` 브랜치를 `path: _data`로 따로 체크아웃해 합친다.
+
+- `main`의 웹·빌드 스크립트·Pages workflow 변경, `bench`의 main 실행 성공, `workflow_dispatch`로 배포한다. `data`는 workflow가 없는 orphan 브랜치이며, `GITHUB_TOKEN` push는 다른 workflow를 시작하지 않는다. 데이터 push만 기다리면 배포가 갱신되지 않는다([GitHub 문서](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow#triggering-a-workflow-from-a-workflow)).
+- 이벤트 브랜치와 무관하게 코드는 `ref: main`, 데이터는 `ref: data`로 따로 checkout한다. 측정을 종료한 현재는 main 변경 또는 수동 dispatch로 기존 전체 데이터를 배포한다.
+- `scripts/build_site.py`가 두 CSV의 실행 ID 일치·중복 여부, 턴과 진단의 참조 무결성을 검사한다. 누락 시 artifact를 만들지 않는다. 턴 기록이 없는 실행도 요약·결과에 있으면 허용한다.
+- 과거 snapshot 20건은 `benchmark/history/legacy-2026-09-13/`의 checksum을 검증한 뒤 표시용 CSV에 합친다. 회차마다 `legacy:<run_date>`를 붙이고 원본도 따로 복사한다.
+- artifact의 `site-manifest.json`에는 코드·데이터·과거 원본 revision과 파이프라인별 실행·턴·진단 건수를 남긴다. Git으로 추적되지 않는 로컬 데이터의 revision은 `null`이다.
+
+### 아키텍처 리뷰 반영 — 2026-10-21
+
+| 공통 모듈 | 소유하는 동작 | 호출자 |
+|---|---|---|
+| `Transcript.load` (`transcript.py`) | UTF-8·JSONL 해석, 잘못된 행·sidechain 제외, 메시지·도구 기록과 중단 사유 | results, activity_log, diagnostics, job_runner, ledger |
+| `intake.create_plan` | 조건 선택, workspace 준비, preflight, isolation·모델·digest와 계획 저장 | CLI estimate, Web estimate |
+| `ledger.sync_published` | 완료 job 1회 조회, 공통 시도 키, 결과·턴·요약·비교표·진단 동기화 | job_runner, 기본 경로 collect/publish |
+| `QueueRunner.run` | worker lock·orphan 복구, 선점·poll·rate-limit 대기, 현재 작업 취소와 서버 종료 | CLI work, Web AutoWorker |
+
+기존 `collect`·`publish` import와 사용자 지정 출력 경로는 호환 인터페이스로 유지했다. 기본 출력 경로는 ledger 동기화를 사용한다. 명시적 사용자 지정 출력은 기존 개별 exporter 계약을 유지한다.
+
+ledger는 출력 경로 잠금 안에서 임시 파일을 완성하고 파일별 atomic replace를 수행한다. 교체 실패는 전본으로 되돌리고, 프로세스가 강제 중단돼 rollback journal이 남으면 다음 동기화에서 복구한다. 여러 파일을 동시에 읽는 reader의 snapshot isolation이나 전원 장애 시 durability까지 보장하는 DB transaction은 아니다. 배포 artifact는 완료된 Git snapshot을 읽고 실행 ID를 검사한다.
+
+CLI는 인프라 오류에서 멈추고 Web은 다음 작업을 계속 받는 기존 정책을 유지한다. `work --once`도 이제 같은 worker lock을 사용한다. Web 서버가 닫히면 현재 작업 취소와 대기 종료를 요청한다. 모델 호출·승인 우회는 추가하지 않았다.
 
 ## 브랜치 보호 설정
 

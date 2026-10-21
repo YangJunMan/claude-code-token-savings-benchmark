@@ -1,7 +1,6 @@
 """Turn-level token accounting extracted from a Claude Code transcript.
 
-Restored from the legacy `benchmark/reports/activity_log.py` (same logic,
-unchanged) so `token_bench` can produce the same per-turn breakdown the
+Restored from the legacy `benchmark/reports/activity_log.py` (same accounting logic) so `token_bench` can produce the same per-turn breakdown the
 published `data/activity-log.csv` uses. `token_bench`'s `stdout.jsonl` is the
 same Claude Code stream-json format the legacy runner's `transcript.jsonl`
 was, so this module works unmodified against it.
@@ -12,40 +11,9 @@ spent the tokens".  Every number here is read from the provider-reported
 """
 
 from dataclasses import dataclass, replace
-import json
-from pathlib import Path
-import re
 
 
-PATH_TOOLS = ("Read", "Write", "Edit", "NotebookEdit")
-_ABSOLUTE = re.compile(r"(?:/[^\s\"\']*)+")
-
-
-def _relative_to_worktree(path):
-    """Name the file by its place in the task, not on the machine that ran it.
-
-    Every run happens in a throwaway worktree whose absolute path contains the
-    operator's home directory, and the CI secret scan fails the build on one.
-    """
-    marker = "/worktree/"
-    if marker in path:
-        return path.split(marker, 1)[1]
-    return ""
-
-
-def tool_target(name, payload):
-    """What a single tool call acted on, or "" when it cannot be named safely."""
-    payload = payload or {}
-    if name in PATH_TOOLS:
-        return _relative_to_worktree(str(payload.get("file_path", "")))
-    if name == "Bash":
-        command = str(payload.get("command", ""))
-        # A shell line can carry anything, including paths outside the worktree,
-        # so only the program name is kept.
-        command = re.sub(r'^\s*cd\s+"[^"]*"\s*&&\s*', "", command)
-        program = command.strip().split()[0] if command.strip() else ""
-        return "" if _ABSOLUTE.fullmatch(program) or "/" in program else program
-    return ""
+from token_bench.transcript import Transcript
 
 
 @dataclass(frozen=True)
@@ -72,49 +40,6 @@ def _int(mapping, key):
     return int(mapping.get(key, 0) or 0)
 
 
-def _assistant_messages(path):
-    """Collapse the transcript into one usage record per assistant message.
-
-    Claude Code writes one JSONL line per content block and repeats the whole
-    ``usage`` object on each of them.  Sub-agent turns are skipped: they run on
-    their own context, so mixing them into this one's growth would attribute a
-    sub-agent's prompt to whichever tool the main thread called next.
-    """
-    usages = {}
-    tools = {}
-    targets = {}
-    stops = {}
-    models = {}
-    order = []
-    for line in Path(path).read_text(encoding="utf-8", errors="replace").splitlines():
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if row.get("type") != "assistant" or row.get("isSidechain"):
-            continue
-        message = row.get("message", {})
-        message_id = message.get("id")
-        usage = message.get("usage")
-        if not message_id or not usage:
-            continue
-        if message_id not in usages:
-            usages[message_id] = usage
-            stops[message_id] = message.get("stop_reason") or ""
-            models[message_id] = message.get("model") or ""
-            tools[message_id] = []
-            targets[message_id] = []
-            order.append(message_id)
-        for block in message.get("content", []):
-            if block.get("type") == "tool_use":
-                tools[message_id].append(block.get("name"))
-                target = tool_target(block.get("name"), block.get("input"))
-                if target:
-                    targets[message_id].append(target)
-    return [(usages[key], tuple(tools[key]), tuple(targets[key]), stops[key],
-             models[key]) for key in order]
-
-
 def extract_turns(path):
     """Return one Turn per assistant message, in transcript order.
 
@@ -122,7 +47,7 @@ def extract_turns(path):
     size is charged back to turn N -- the turn that caused it.  Recording it on
     N+1 would pair it with whatever tool that turn happened to call.
     """
-    messages = _assistant_messages(path)
+    messages = Transcript.load(path).assistant_messages()
     contexts = [
         _int(usage, "input_tokens")
         + _int(usage, "cache_creation_input_tokens")

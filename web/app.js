@@ -120,23 +120,23 @@ function hoverable(node, html) {
 
 const state = {
   activity: [], summary: [], comparison: [], runId: null, condition: null,
-  view: "overview", promptId: null, diagnostics: {},
+  view: "overview", promptId: null, modelId: null, diagnostics: {}, results: [],
 };
 
-/* 프리셋 3종(small/large/very-large)과 사용자 지정 프롬프트(custom:<hash>)를
-   구분해서 볼 수 있어야 한다는 요구로 추가됐다. 필터를 안 걸면(promptId가
-   null) 지금까지처럼 전부 섞어서 보여준다 - 기존 동작을 안 바꾸는 기본값. */
-function drawPromptPicker() {
-  const ids = [...new Set(state.summary.map((r) => r.prompt_id).filter(Boolean))].sort();
-  const picker = document.getElementById("prompt-picker");
-  if (state.promptId && !ids.includes(state.promptId)) state.promptId = null;
-  picker.innerHTML = '<option value="">전체</option>' +
-    ids.map((id) => `<option value="${id}">${id}</option>`).join("");
-  picker.value = state.promptId || "";
-  picker.onchange = () => {
-    state.promptId = picker.value || null;
-    render();
-  };
+/* 전체 기록은 유지하되 모델·프롬프트를 골라 같은 과제끼리 비교한다. */
+function drawPicker(field, elementId, column) {
+  const ids = [...new Set(state.summary.map((r) => r[column]).filter(Boolean))].sort();
+  const picker = document.getElementById(elementId);
+  if (state[field] && !ids.includes(state[field])) state[field] = null;
+  picker.replaceChildren();
+  const all = document.createElement("option");
+  all.value = ""; all.textContent = "전체"; picker.appendChild(all);
+  ids.forEach((id) => {
+    const option = document.createElement("option");
+    option.value = id; option.textContent = id; picker.appendChild(option);
+  });
+  picker.value = state[field] || "";
+  picker.onchange = () => { state[field] = picker.value || null; render(); };
 }
 
 const toolsOf = (row) => (row.tools ? row.tools.split(" ").filter(Boolean) : []);
@@ -225,18 +225,24 @@ function buildRuns() {
   const summaryByKey = new Map(
     state.summary.map((r) => [`${r.run_date}/${r.run_id}`, r]));
 
+  summaryByKey.forEach((_, key) => { if (!byKey.has(key)) byKey.set(key, []); });
   const runs = [];
   byKey.forEach((rows, key) => {
     const s = summaryByKey.get(key) || {};
     if (state.promptId && s.prompt_id !== state.promptId) return;
+    if (state.modelId && s.model !== state.modelId) return;
     rows.sort((a, b) => num(a.turn) - num(b.turn));
     const sum = (f) => rows.reduce((a, r) => a + num(r[f]), 0);
-    const turns = rows.length;
+    const turns = rows.length || num(s.turns);
     runs.push({
       key,
-      run_date: rows[0].run_date,
-      run_id: rows[0].run_id,
-      condition: rows[0].condition,
+      run_date: s.run_date || rows[0]?.run_date,
+      run_id: s.run_id || rows[0]?.run_id,
+      condition: s.condition || rows[0]?.condition,
+      promptId: s.prompt_id || "",
+      pipeline: s.pipeline || "subscription",
+      status: s.terminal_reason || "",
+      invalidReason: s.invalid_reason || "",
       rows,
       turns,
       /* Published by benchmark/reports/collect.py rather than re-summed here.
@@ -246,8 +252,9 @@ function buildRuns() {
       tax: num(s.context_tax_tokens),
       totalOutput: sum("output_tokens"),
       totalResult: sum("result_tokens"),
-      firstContext: num(rows[0].context_tokens),
+      firstContext: num(rows[0]?.context_tokens),
       cost: num(s.cost_usd),
+      costKnown: s.cost_usd !== "" && s.cost_usd != null,
       quality: num(s.quality_score),
       criticalPass: s.critical_pass || "",
       measurable: num(s.measurable) === 1,
@@ -295,9 +302,12 @@ function conditionRank(condition) {
    large preset never gets compared against a HEADROOM run on small. When a
    preset filter is active, only that group's rows apply. */
 function comparisonRows() {
-  return state.promptId
-    ? state.comparison.filter((r) => r.prompt_id === state.promptId)
-    : state.comparison;
+  const rows = state.comparison.filter((r) =>
+    (!state.promptId || r.prompt_id === state.promptId) &&
+    (!state.modelId || r.model === state.modelId));
+  // 서로 다른 모델·과제의 평균 delta와 noise floor를 섞지 않는다.
+  const cohorts = new Set(rows.map((r) => `${r.model}/${r.prompt_id}`));
+  return cohorts.size > 1 ? [] : rows;
 }
 
 function buildBatches(runs) {
@@ -362,6 +372,23 @@ function corpus() {
   return { runs, batches: buildBatches(runs), ...buildComparison() };
 }
 
+function drawArchive(data) {
+  document.getElementById("archive-count").textContent = `${data.runs.length}건`;
+  const table = document.getElementById("archive-table");
+  table.replaceChildren();
+  const head = table.insertRow();
+  ["실행 날짜", "실행 ID", "프롬프트", "모델", "조건", "종료 상태", "평균 포함", "비용 (USD)", "turn", "기존 진단", "평가 체계"]
+    .forEach((label) => { const th = document.createElement("th"); th.textContent = label; head.appendChild(th); });
+  [...data.runs].reverse().forEach((run) => {
+    const row = table.insertRow();
+    [run.run_date, run.run_id, run.promptId, run.model, run.condition, run.status,
+      run.measurable ? "포함" : `제외: ${run.invalidReason || "측정 불가"}`,
+      run.costKnown ? run.cost.toFixed(4) : "—", run.turns, state.diagnostics[run.run_id]?.summary || "—",
+      run.pipeline === "legacy" ? "과거 점수 평가" : "구독·공개 테스트"]
+      .forEach((value) => { row.insertCell().textContent = value; });
+  });
+}
+
 /* ---------- overview ---------- */
 
 function drawVerdict(data) {
@@ -369,8 +396,11 @@ function drawVerdict(data) {
   const note = document.getElementById("verdict-note");
   const { rows, noise } = data;
   if (!rows.length) {
-    verdict.textContent = "비교할 조건이 아직 없습니다";
-    note.textContent = "BASE 외의 조건이 최소 한 번은 실행돼야 비교가 생깁니다.";
+    const cohorts = new Set(data.runs.map((r) => `${r.model}/${r.promptId}`));
+    verdict.textContent = cohorts.size > 1 ? "비교할 프롬프트·모델을 선택하세요" : "비교할 조건이 아직 없습니다";
+    note.textContent = cohorts.size > 1
+      ? "전체 실험은 아래 기록에 표시합니다. 비교는 같은 모델·프롬프트 안에서만 계산합니다."
+      : "같은 모델·프롬프트에 BASE와 비교 조건이 필요합니다.";
     return;
   }
   const clears = rows.filter((r) =>
@@ -422,7 +452,7 @@ function drawCorpusKpis(data) {
     ["실행", fmt(data.runs.length)],
     ["조건", fmt(conditions.size)],
     ["측정한 턴", fmt(turns)],
-    ["측정 비용 합계", `$${data.runs.reduce((a, r) => a + r.cost, 0).toFixed(2)}`],
+    ["기록된 비용 합계", `$${data.runs.reduce((a, r) => a + r.cost, 0).toFixed(2)}`],
   ];
   cards.forEach(([label, value]) => {
     const card = document.createElement("div");
@@ -572,6 +602,13 @@ function drawConditionTable(data) {
   const head = table.insertRow();
   ["조건", "실행", "평균 처리 토큰", "평균 비용", "평균 context tax", "vs BASE 처리", "vs BASE 비용", "noise 초과", "평균 품질"]
     .forEach((label) => { const th = document.createElement("th"); th.textContent = label; head.appendChild(th); });
+
+  if (new Set(data.runs.map((r) => `${r.model}/${r.promptId}`)).size > 1) {
+    const row = table.insertRow();
+    const cell = row.insertCell(); cell.colSpan = 9;
+    cell.textContent = "모델·프롬프트 하나를 선택하면 같은 평가 체계 안에서 평균을 표시합니다.";
+    return;
+  }
 
   /* Averaged over measurable runs only - the same set comparison.csv's "vs
      BASE"/"noise" columns already use. An invalid run has no reliable
@@ -1177,10 +1214,7 @@ function drawKpis(turns) {
    matter how many rounds pile up. A round adds an entry inside its condition's
    "날짜별 상세" list, not a new top-level choice. */
 function runsGroupedByCondition() {
-  const allowed = state.promptId
-    ? new Set(state.summary.filter((r) => r.prompt_id === state.promptId)
-        .map((r) => `${r.run_date}/${r.run_id}`))
-    : null;
+  const allowed = new Set(buildRuns().map((r) => r.key));
   const byId = new Map();
   state.activity.forEach((r) => {
     const id = `${r.run_date}/${r.run_id}`;
@@ -1238,9 +1272,13 @@ function drawRunPicker() {
 }
 
 function render() {
-  drawPromptPicker();
+  drawPicker("promptId", "prompt-picker", "prompt_id");
+  drawPicker("modelId", "model-picker", "model");
   const data = corpus();
   drawScope(data);
+  drawArchive(data);
+  const visibleIds = new Set(data.runs.map((r) => r.run_id));
+  drawBench(state.results.filter((r) => visibleIds.has(r.run_id)));
   drawVerdict(data);
   drawCorpusKpis(data);
   drawDelta(data);
@@ -1426,7 +1464,7 @@ async function boot() {
 
   /* 새 파이프라인 CSV는 아직 비어 있을 수 있다. 실패해도 나머지 화면은 그린다. */
   try {
-    drawBench(await load("../data/token-bench-results.csv"));
+    state.results = await load("../data/token-bench-results.csv");
   } catch (error) {
     document.getElementById("bench-status").textContent =
       `token-bench 결과를 불러오지 못했습니다: ${error.message}`;
@@ -1459,5 +1497,5 @@ if (typeof document !== "undefined") boot();
 /* Node 기반 테스트(tests/test_web.py)가 순수 함수만 불러 쓸 수 있게 한다.
    브라우저에는 `module`이 없으므로 이 블록은 아무 효과가 없다. */
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { parseCsv, toRecords, summarizeByCondition, CSV_COLUMNS };
+  module.exports = { parseCsv, toRecords, summarizeByCondition, CSV_COLUMNS, state, buildRuns, comparisonRows };
 }

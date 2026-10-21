@@ -11,12 +11,11 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
+from token_bench.transcript import Transcript, is_usage_limit_error
 from token_bench.evaluation import EvaluationReport
 from token_bench.job_store import JobRecord
 from token_bench.worker import ProcessOutcome
 
-_NO_STDOUT = "stdout 로그 파일이 없거나 비어 있다."
-_NOT_JSON = "stdout 로그를 JSON Lines로 해석할 수 없다."
 _NO_SYSTEM_EVENT = "stdout 로그에 'system' 초기화 이벤트가 없다."
 _NO_RESULT_EVENT = "stdout 로그에 'result' 종료 이벤트가 없다."
 _NO_FIELD = "원본 로그의 종료 이벤트에 이 필드가 없다."
@@ -47,57 +46,7 @@ def interrupted_reason(stdout_path: str | None) -> str | None:
     아니다. 게시 전에 걸러내야 한다.
     """
 
-    events, _ = _parse_stream_json_lines(stdout_path)
-    result_event = next((e for e in reversed(events) if e.get("type") == "result"), None)
-    if result_event is None or not result_event.get("is_error"):
-        return None
-    return str(result_event.get("result") or "원본 로그에 사유 없음")[:300]
-
-
-_USAGE_LIMIT_KEYWORDS = (
-    "usage limit",
-    "session limit",
-    "rate limit",
-    "limit reached",
-    "quota exceeded",
-)
-
-
-def is_usage_limit_error(reason: str | None) -> bool:
-    """중단 사유가 구독 사용 한도로 보이면 참을 돌려준다.
-
-    2026-09-15 실제 rtk 실행이 "You've hit your session limit · resets
-    2:50am"으로 끊긴 사례(test_treatments.py)가 있어 "session limit"은
-    확인된 문구다. 나머지는 비슷한 다른 한도 메시지를 짐작으로 넓힌
-    것이라 다른 이유로 중단된 실행을 오탐할 수 있고, 반대로 놓칠 수도 있다.
-    """
-
-    if not reason:
-        return False
-    lowered = reason.lower()
-    return any(keyword in lowered for keyword in _USAGE_LIMIT_KEYWORDS)
-
-
-def _parse_stream_json_lines(stdout_path: str | None) -> tuple[list[dict], str | None]:
-    if not stdout_path:
-        return [], _NO_STDOUT
-    path = Path(stdout_path)
-    if not path.is_file() or path.stat().st_size == 0:
-        return [], _NO_STDOUT
-
-    events: list[dict] = []
-    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            events.append(json.loads(line))
-        except json.JSONDecodeError:
-            continue
-
-    if not events:
-        return [], _NOT_JSON
-    return events, None
+    return Transcript.load(stdout_path).interrupted_reason
 
 
 @dataclass(frozen=True)
@@ -159,15 +108,14 @@ def collect(
     auth: dict,
     claude_version: str | None,
     evaluation: EvaluationReport | None = None,
+    transcript: Transcript | None = None,
 ) -> RunResult:
     """M6의 원본 출력(stdout.jsonl)과 job 메타데이터를 RunResult로 정규화한다."""
 
-    events, parse_error = _parse_stream_json_lines(outcome.stdout_path)
-
-    system_event = next((e for e in events if e.get("type") == "system"), None)
-    result_event = next(
-        (e for e in reversed(events) if e.get("type") == "result"), None
-    )
+    transcript = transcript or Transcript.load(outcome.stdout_path)
+    parse_error = transcript.parse_error
+    system_event = transcript.system_event
+    result_event = transcript.result_event or None
 
     model_value = system_event.get("model") if system_event else None
     model_missing = None
