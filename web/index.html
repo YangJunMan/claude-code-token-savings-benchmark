@@ -32,10 +32,15 @@
   <label class="scope-field" id="prompt-picker-field">프롬프트
     <select id="prompt-picker"><option value="">전체</option></select>
   </label>
+  <label class="scope-field">모델
+    <select id="model-picker"><option value="">전체</option></select>
+  </label>
   <button id="theme" type="button" aria-pressed="false">다크 모드</button>
 </header>
 
 <div class="wrap">
+<p class="archive-notice">2026-10-21 추가 측정 종료 · 누적 데이터와 기존 진단을 보존합니다.
+  <a href="https://github.com/YangJunMan/claude-code-token-savings-benchmark/blob/main/docs/FINAL_REPORT.md">종료 보고서와 해석 한계</a> · <a href="../data/legacy/run-summary.csv">과거 원본 요약 CSV</a></p>
 
 <!-- ===================== 개요 =====================
      모든 탭이 같은 뼈대를 씁니다: 페이지 헤더(제목·설명·스코프) → 12컬럼
@@ -44,7 +49,7 @@
   <div class="page-head">
     <div>
       <h2 class="page-title">개요</h2>
-      <p class="muted">지금까지 쌓인 회차 전체를 합쳐, 어떤 절약법이 실제로 토큰을 줄였는지 봅니다.</p>
+      <p class="muted">전체 실험 기록을 보존합니다. 조건 비교는 같은 모델·프롬프트 안에서 확인하세요.</p>
     </div>
     <div class="scope" id="scope-overview"></div>
   </div>
@@ -52,7 +57,7 @@
   <div class="grid12">
     <section class="card col-8">
       <h2>지금까지의 결과</h2>
-      <p class="muted">모든 회차를 합쳐 내린 현재까지의 판단입니다.</p>
+      <p class="muted">선택한 모델·프롬프트에서 관측한 비교 결과입니다.</p>
       <p class="verdict" id="verdict">—</p>
       <p class="hero-note" id="verdict-note"></p>
     </section>
@@ -84,6 +89,11 @@
       <p class="note">noise floor는 같은 회차에서 조건이 똑같은 BASE 실행끼리 벌어진 폭입니다. 차이가 이 폭 안에 있으면 조건의 효과로 읽을 수 없습니다.</p>
     </section>
   </div>
+  <section class="card archive-records">
+    <h2>실험 기록 <span id="archive-count"></span></h2>
+    <p class="muted">성공·timeout·평균 제외 실행을 모두 표시합니다. 과거 점수 평가와 현행 공개 테스트는 구분합니다. 기존 진단은 당시의 분석이며 검증된 인과 결론을 뜻하지 않습니다.</p>
+    <div class="table-scroll"><table id="archive-table"></table></div>
+  </section>
 </main>
 
 <!-- ===================== 실행 상세 ===================== -->

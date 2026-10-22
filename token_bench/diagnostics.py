@@ -27,6 +27,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from token_bench.transcript import Transcript
 from token_bench import claude_code
 from token_bench.claude_code import CLAUDE_BIN
 
@@ -61,56 +62,11 @@ _SYSTEM = """너는 Claude Code 실행 기록을 읽고 원인을 설명하는 �
 """
 
 
-def _events(stdout_path: str | Path) -> list[tuple[int, str, dict, str]]:
-    """turn 순서대로 (turn, 도구 이름, 입력, 결과 텍스트)를 뽑는다."""
-
-    path = Path(stdout_path)
-    if not path.is_file():
-        return []
-    msgs: dict[str, list[tuple[str, str, dict]]] = {}
-    order: list[str] = []
-    results: dict[str, str] = {}
-    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if row.get("isSidechain"):
-            continue
-        if row.get("type") == "assistant":
-            message = row.get("message", {})
-            mid = message.get("id")
-            if not mid or not message.get("usage"):
-                continue
-            if mid not in msgs:
-                msgs[mid] = []
-                order.append(mid)
-            for block in message.get("content", []):
-                if block.get("type") == "tool_use":
-                    msgs[mid].append((block.get("id"), block.get("name"), block.get("input") or {}))
-        elif row.get("type") == "user":
-            for block in row.get("message", {}).get("content", []):
-                if isinstance(block, dict) and block.get("type") == "tool_result":
-                    content = block.get("content")
-                    if isinstance(content, list):
-                        content = " ".join(b.get("text", "") for b in content if isinstance(b, dict))
-                    results[block.get("tool_use_id")] = str(content or "")
-
-    out: list[tuple[int, str, dict, str]] = []
-    for turn, mid in enumerate(order, 1):
-        for tool_id, name, inp in msgs[mid]:
-            out.append((turn, name, inp, results.get(tool_id, "")))
-    return out
-
-
 def _digest(stdout_path: str | Path) -> str:
     """transcript를 turn별 한 줄 요약으로 압축한다."""
 
     lines: list[str] = []
-    for turn, name, inp, result in _events(stdout_path):
+    for turn, name, inp, result in Transcript.load(stdout_path).tool_events():
         target = (
             inp.get("command")
             or inp.get("file_path")

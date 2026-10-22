@@ -1,0 +1,2 @@
+# 원본 snapshot의 CRLF와 SHA-256을 모든 OS에서 그대로 보존한다.
+benchmark/history/legacy-2026-09-13/*.csv -text whitespace=cr-at-eol

@@ -114,3 +114,28 @@ def _row(**overrides) -> str:
     values = {col: "" for col in CSV_COLUMNS}
     values.update(overrides)
     return ",".join(values[col] for col in CSV_COLUMNS)
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node가 설치되어 있지 않다.")
+def test_overview_keeps_summary_only_runs_and_separates_comparison_cohorts():
+    script = f"""
+    const assert = require('node:assert/strict');
+    const {{ state, buildRuns, comparisonRows }} = require({json.dumps(str(APP_JS))});
+    state.summary = [
+      {{run_date:'2026-10-01', run_id:'one', condition:'BASE', prompt_id:'small', model:'a', turns:'0', measurable:'0'}},
+      {{run_date:'2026-10-02', run_id:'two', condition:'RTK', prompt_id:'large', model:'b', turns:'2', measurable:'1'}}
+    ];
+    assert.equal(buildRuns().length, 2);
+    assert.equal(buildRuns()[0].turns, 0);
+    state.comparison = [
+      {{model:'a', prompt_id:'small', condition:'RTK'}},
+      {{model:'b', prompt_id:'large', condition:'RTK'}}
+    ];
+    assert.equal(comparisonRows().length, 0);
+    state.promptId = 'large'; state.modelId = 'b';
+    assert.equal(buildRuns().length, 1);
+    assert.equal(comparisonRows().length, 1);
+    assert.equal(comparisonRows()[0].model, 'b');
+    """
+    result = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stderr

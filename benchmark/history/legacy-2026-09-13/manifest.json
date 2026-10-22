@@ -1,0 +1,9 @@
+{
+  "source_revision": "6ddb64bca356bedb07d5b2013fa5fc896e816631",
+  "files": {
+    "run-summary.csv": "80bb6159f002fb8d98a12700a75d2a8d91a2f21e6d0c6f7da263f9ce08ff3433",
+    "activity-log.csv": "928d0e1477a7a720e4591f308e2dcfc21b9ad4dfb15a96390b34d900c3d1da9a",
+    "comparison.csv": "99ecbedeace41805279325cae659a1394ca1cea966348aa602cb70533a094b46",
+    "published-measurements.csv": "09629241e4227b757b88f24250c05a8c5b38d0c8bf307d74c4937863ef9c26c7"
+  }
+}

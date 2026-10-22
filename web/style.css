@@ -378,3 +378,6 @@ input[type="checkbox"] { width: auto; }
 #plan-table th:first-child, #plan-table td:first-child { text-align: left; }
 /* 실행별 상세는 열이 많아 줄바꿈되면 읽기 어렵다. 가로 스크롤에 맡긴다. */
 #detail-table th, #detail-table td { white-space: nowrap; }
+
+.archive-notice { margin: 0 0 1.5rem; color: var(--muted); font-size: .9rem; }
+.archive-records { margin-top: 1.5rem; }

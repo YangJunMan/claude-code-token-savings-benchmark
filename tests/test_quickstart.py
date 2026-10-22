@@ -70,7 +70,7 @@ def test_quickstart_ps1_exists_for_native_windows():
     assert "Stop-Process" in text
 
 
-def test_worker_lock_does_not_import_posix_only_fcntl_unconditionally():
+def test_file_lock_does_not_import_posix_only_fcntl_unconditionally():
     """`import fcntl`가 모듈 최상단에 있으면 Windows에서 token_bench 전체가 죽는다.
 
     실제로 이번 실행 검증에서 이 문제를 만났다 — worker.py가 fcntl을 무조건
@@ -78,7 +78,7 @@ def test_worker_lock_does_not_import_posix_only_fcntl_unconditionally():
     ImportError로 실패했다. 플랫폼 분기로 감싸야 한다.
     """
 
-    text = (REPO_ROOT / "token_bench" / "worker.py").read_text(encoding="utf-8")
+    text = (REPO_ROOT / "token_bench" / "storage.py").read_text(encoding="utf-8")
     lines = text.splitlines()
     import_lines = [i for i, line in enumerate(lines) if line.strip() == "import fcntl"]
     assert import_lines, "fcntl을 아예 안 쓰게 됐다면 이 테스트도 함께 정리하라."

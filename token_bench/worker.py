@@ -28,6 +28,7 @@ from pathlib import Path
 from token_bench.claude_code import CLAUDE_BIN
 from token_bench.conditions import ALLOWED_INJECTION_TYPES, Injection
 from token_bench.job_store import requeue_orphaned_running
+from token_bench.storage import FileLockError as WorkerLockError, file_lock
 
 # 개인 설정(스킬·플러그인·훅·MCP)이 측정에 섞이지 않게 하는 두 가지 방식.
 #
@@ -79,57 +80,12 @@ class WorkerError(ValueError):
     """프로세스를 시작할 수 없을 때 발생한다."""
 
 
-class WorkerLockError(RuntimeError):
-    """같은 상태 저장소에 이미 다른 worker가 상주하고 있을 때 발생한다."""
-
-
-# 파일 잠금 API가 POSIX(fcntl)와 Windows(msvcrt)로 갈린다. import 시점에
-# 플랫폼별 모듈을 고르기만 하고, 잠그고 푸는 동작은 아래 두 함수로 감싸서
-# worker_lock 본문은 플랫폼을 몰라도 되게 한다.
-if sys.platform == "win32":
-    import msvcrt
-
-    def _lock_exclusive_nonblocking(fp) -> None:
-        fp.seek(0)
-        msvcrt.locking(fp.fileno(), msvcrt.LK_NBLCK, 1)
-
-    def _unlock(fp) -> None:
-        with contextlib.suppress(OSError):
-            fp.seek(0)
-            msvcrt.locking(fp.fileno(), msvcrt.LK_UNLCK, 1)
-else:
-    import fcntl
-
-    def _lock_exclusive_nonblocking(fp) -> None:
-        fcntl.flock(fp.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-
-    def _unlock(fp) -> None:
-        with contextlib.suppress(OSError):
-            fcntl.flock(fp.fileno(), fcntl.LOCK_UN)
-
-
 @contextlib.contextmanager
 def worker_lock(db_path: Path):
-    """구독 실행 worker가 같은 상태 저장소에 하나만 상주하도록 강제한다."""
-
-    lock_path = db_path.parent / "worker.lock"
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    # msvcrt.locking은 파일에 바이트가 하나 이상 있어야 잠글 수 있다.
-    if not lock_path.exists() or lock_path.stat().st_size == 0:
-        lock_path.write_bytes(b"0")
-    fp = open(lock_path, "r+b")
-    try:
-        try:
-            _lock_exclusive_nonblocking(fp)
-        except OSError as exc:
-            raise WorkerLockError(
-                f"이미 다른 worker가 '{db_path}' 상태 저장소에서 실행 중이다."
-            ) from exc
+    """worker 잠금을 획득한 뒤 중단된 작업만 큐로 복구한다."""
+    with file_lock(db_path.parent / "worker.lock"):
         requeue_orphaned_running(db_path=db_path)
         yield
-    finally:
-        _unlock(fp)
-        fp.close()
 
 
 @dataclass(frozen=True)
