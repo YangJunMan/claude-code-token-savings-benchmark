@@ -3,8 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>토큰 절약 실험 관측소</title>
-<link rel="icon" href="data:,">
+<title>토큰 절약 실험 관측소 | Claude Code 벤치마크</title>
+<meta name="description" content="Claude Code의 5가지 토큰 절약 기법(BE_BRIEF, CAVEMAN, HEADROOM, RTK)의 실측 턴 단위 비용 및 자연 변동폭(Noise Floor) 분석 관측소">
+<meta property="og:title" content="토큰 절약 실험 관측소">
+<meta property="og:description" content="Claude Code 토큰 절약 기법 턴 단위 실측 벤치마크 결과 관측소">
+<meta property="og:type" content="website">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect x='3' y='12' width='4' height='9' rx='1' fill='%232a78d6'/><rect x='10' y='7' width='4' height='14' rx='1' fill='%232a78d6'/><rect x='17' y='3' width='4' height='18' rx='1' fill='%232a78d6'/></svg>">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -66,6 +70,33 @@
       <h2>누적 현황</h2>
       <p class="muted">이 페이지가 근거로 삼는 데이터의 규모입니다.</p>
       <div class="kpi-row tight-kpis" id="corpus-kpis"></div>
+    </section>
+
+    <section class="card col-12">
+      <h2>비교한 5가지 기법</h2>
+      <p class="muted">Claude Code 환경에서 토큰과 비용을 줄이기 위해 제안된 4가지 접근법을 기준선(BASE)과 동일 조건에서 비교했습니다.</p>
+      <div class="treatment-grid">
+        <div class="treatment-item">
+          <span class="treatment-tag base">BASE</span>
+          <div class="treatment-desc"><strong>기본 설정</strong> — 아무런 조치를 취하지 않은 순수 Claude Code 실행 (기준선)</div>
+        </div>
+        <div class="treatment-item">
+          <span class="treatment-tag prompt">BE_BRIEF</span>
+          <div class="treatment-desc"><strong>간결 지시 프롬프트</strong> — 시스템 프롬프트에 답변을 간결하게 하도록 지시하여 모델의 장황한 설명 억제</div>
+        </div>
+        <div class="treatment-item">
+          <span class="treatment-tag prompt">CAVEMAN-FULL</span>
+          <div class="treatment-desc"><strong>원시인 말투 프롬프트</strong> — 모델의 모든 응답을 극단적 단문/원시인 어조로 제한한 실험적 축약 프롬프트</div>
+        </div>
+        <div class="treatment-item">
+          <span class="treatment-tag tool">HEADROOM</span>
+          <div class="treatment-desc"><strong>프록시 캐시 도구</strong> — 로컬 프록시 계층에서 이전 턴의 중복 컨텍스트를 캐싱하고 압축/트리밍</div>
+        </div>
+        <div class="treatment-item">
+          <span class="treatment-tag tool">RTK</span>
+          <div class="treatment-desc"><strong>터미널 훅 도구</strong> — Bash 셸 훅으로 모델이 호출한 터미널 명령의 대량 출력 결과를 사전에 요약/압축</div>
+        </div>
+      </div>
     </section>
 
     <section class="card col-8">
