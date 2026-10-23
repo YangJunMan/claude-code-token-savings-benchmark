@@ -547,16 +547,19 @@ function main() {
     .then(() => {
       badge.className = "chip ok";
       badge.textContent = `로컬 API 연결됨 · ${API_BASE}`;
+      refreshStatus();
+      setInterval(refreshStatus, 3000);
     })
     .catch((err) => {
-      document.getElementById("condition-list").textContent =
-        `조건을 불러오지 못했습니다: ${err.message}`;
-      badge.className = "chip warn";
-      badge.textContent =
-        `${API_BASE}에 연결되지 않음 — "token_bench serve" 실행 후 새로고침`;
+      document.getElementById("condition-list").innerHTML = `
+        <div class="archive-box">
+          <p><strong>이 관측소는 측정이 완료된 정적 아카이브입니다.</strong></p>
+          <p class="muted">새 실험을 등록하거나 조건을 추가하려면 로컬 CLI(<code>token_bench serve</code>)를 실행하세요.</p>
+        </div>
+      `;
+      badge.className = "chip";
+      badge.textContent = "정적 아카이브 (읽기 전용)";
     });
-  refreshStatus();
-  setInterval(refreshStatus, 3000);
 
   // 탭을 펼친 순간 바로 최신 상태를 보여 준다(다음 폴링까지 기다리지 않도록).
   const view = document.getElementById("view-settings");

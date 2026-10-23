@@ -125,7 +125,10 @@ const state = {
 
 /* 전체 기록은 유지하되 모델·프롬프트를 골라 같은 과제끼리 비교한다. */
 function drawPicker(field, elementId, column) {
-  const ids = [...new Set(state.summary.map((r) => r[column]).filter(Boolean))].sort();
+  let ids = [...new Set(state.summary.map((r) => r[column]).filter(Boolean))].sort();
+  if (field === "promptId") {
+    ids = ids.filter((id) => !id.startsWith("legacy:"));
+  }
   const picker = document.getElementById(elementId);
   if (state[field] && !ids.includes(state[field])) state[field] = null;
   picker.replaceChildren();
@@ -1488,6 +1491,14 @@ async function boot() {
     clearTimeout(resizing);
     resizing = setTimeout(render, 150);
   });
+
+  // 기본 코호트 자동 선택 (첫 방문 시 빈 화면 방지)
+  if (!state.promptId && state.summary.some((r) => r.prompt_id === "small")) {
+    state.promptId = "small";
+  }
+  if (!state.modelId && state.summary.some((r) => r.model === "claude-sonnet-5")) {
+    state.modelId = "claude-sonnet-5";
+  }
 
   showView(location.hash.slice(1) || "overview");
 }

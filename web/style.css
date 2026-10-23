@@ -381,3 +381,43 @@ input[type="checkbox"] { width: auto; }
 
 .archive-notice { margin: 0 0 1.5rem; color: var(--muted); font-size: .9rem; }
 .archive-records { margin-top: 1.5rem; }
+
+/* 5가지 조건 안내 그리드 */
+.treatment-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: .75rem;
+  margin-top: .75rem;
+}
+.treatment-item {
+  display: flex;
+  flex-direction: column;
+  gap: .4rem;
+  padding: .75rem .9rem;
+  background: var(--plane);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.treatment-tag {
+  align-self: flex-start;
+  font-size: .75rem;
+  font-weight: 700;
+  padding: .2rem .5rem;
+  border-radius: 4px;
+  letter-spacing: .02em;
+}
+.treatment-tag.base { background: color-mix(in srgb, var(--series-1) 15%, transparent); color: var(--series-1); }
+.treatment-tag.prompt { background: color-mix(in srgb, var(--series-3) 15%, transparent); color: var(--series-3); }
+.treatment-tag.tool { background: color-mix(in srgb, var(--series-2) 15%, transparent); color: var(--series-2); }
+.treatment-desc { font-size: .83rem; line-height: 1.45; color: var(--text-secondary); }
+.treatment-desc strong { color: var(--text-primary); }
+
+.archive-box {
+  padding: 1rem 1.25rem;
+  background: var(--plane);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  line-height: 1.6;
+}
+.archive-box p { margin: 0 0 .5rem; }
+.archive-box p:last-child { margin-bottom: 0; }
