@@ -147,6 +147,19 @@ def approve(plan: EstimatePlan, *, confirmed_digest: str) -> ApprovalRecord:
     )
 
 
+# 승인 기록은 계획 파일 옆에 이 이름으로 남는다. CLI·웹 API·bench.yml이 같은 이름을 쓴다.
+APPROVAL_FILENAME = "approval.json"
+
+
+def approve_plan_file(plan_path: Path, *, confirmed_digest: str) -> tuple[ApprovalRecord, Path]:
+    """계획 파일을 읽어 승인하고, 승인 기록을 계획 옆에 저장한다(CLI·웹 공용)."""
+
+    record = approve(load_plan(plan_path), confirmed_digest=confirmed_digest)
+    approval_path = plan_path.parent / APPROVAL_FILENAME
+    save_json(record.to_dict(), approval_path)
+    return record, approval_path
+
+
 def save_json(document: dict, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(

@@ -7,9 +7,12 @@ import csv
 import json
 import os
 import shutil
+from datetime import datetime
+from functools import lru_cache
 from tempfile import TemporaryDirectory
 from pathlib import Path
 
+from token_bench.conditions import condition_labels
 from token_bench.transcript import Transcript
 from token_bench.activity_log import (
     ACTIVITY_COLUMNS,
@@ -26,7 +29,16 @@ from token_bench.workspace import PROMPT_PRESETS
 
 from token_bench.storage import file_lock
 
-DEFAULT_OUTPUT_PATH = Path("data/token-bench-results.csv")
+# 공개 데이터 파일은 모두 이 디렉터리 아래에 있다. 이름은 한 곳(DATA_FILE_NAMES)에서만 정한다.
+DATA_DIR = Path("data")
+RESULTS_FILE = "token-bench-results.csv"
+ACTIVITY_FILE = "activity-log.csv"
+SUMMARY_FILE = "run-summary.csv"
+COMPARISON_FILE = "comparison.csv"
+DIAGNOSTICS_FILE = "run-diagnostics.json"
+DATA_FILE_NAMES = (RESULTS_FILE, ACTIVITY_FILE, SUMMARY_FILE, COMPARISON_FILE, DIAGNOSTICS_FILE)
+
+DEFAULT_OUTPUT_PATH = DATA_DIR / RESULTS_FILE
 
 # 끝난 실행만 게시한다. blocked/running/queued는 승인 문제이거나 아직 끝나지
 # 않은 실행이므로 공개 데이터에 넣지 않는다. timeout은 게시한다 — 무한 반복에
@@ -189,11 +201,10 @@ def _publish_jobs(
     return new_rows
 
 
-DEFAULT_DIAGNOSTICS_PATH = Path("data/run-diagnostics.json")
-
-DEFAULT_ACTIVITY_PATH = Path("data/activity-log.csv")
-DEFAULT_SUMMARY_PATH = Path("data/run-summary.csv")
-DEFAULT_COMPARISON_PATH = Path("data/comparison.csv")
+DEFAULT_DIAGNOSTICS_PATH = DATA_DIR / DIAGNOSTICS_FILE
+DEFAULT_ACTIVITY_PATH = DATA_DIR / ACTIVITY_FILE
+DEFAULT_SUMMARY_PATH = DATA_DIR / SUMMARY_FILE
+DEFAULT_COMPARISON_PATH = DATA_DIR / COMPARISON_FILE
 
 # timeout은 가장 원인을 알아야 하는 실패다 — 무한 반복에 빠진 실행이 여기
 # 빠지면 CSV에도 진단 레포트에도 남지 않는다(사용자 결정). measurable=0으로
@@ -207,18 +218,14 @@ BASELINE_WINDOW = 10
 # 웹의 "실행 상세" 탭은 activity-log.csv의 condition 문자열 그대로로 그룹을
 # 나눈다(web/app.js:runsGroupedByCondition). token_bench의 condition_id(소문자,
 # 하이픈)가 레거시 라벨(대문자, 밑줄)과 다르면 같은 조건인데도 새 버튼으로
-# 따로 뜬다. 레거시 라벨로 맞춰 기존 그룹에 합친다.
-CONDITION_LABELS = {
-    "base": "BASE",
-    "be-brief": "BE_BRIEF",
-    "headroom": "HEADROOM",
-    "caveman-full": "CAVEMAN-FULL",
-    "rtk": "RTK",
-}
+# 따로 뜬다. conditions.json의 label로 맞춰 기존 그룹에 합친다.
+@lru_cache(maxsize=1)
+def _labels() -> dict[str, str]:
+    return condition_labels()
 
 
 def condition_label(condition_id: str) -> str:
-    return CONDITION_LABELS.get(condition_id, condition_id)
+    return _labels().get(condition_id, condition_id)
 
 
 _PRESET_BY_PATH = {str(path): name for name, path in PROMPT_PRESETS.items()}
@@ -303,8 +310,6 @@ def _washout_gaps(jobs: list[JobRecord]) -> dict[str, str]:
         if ordered:
             gaps[ordered[0].run_id] = ""
         for previous, current in zip(ordered, ordered[1:]):
-            from datetime import datetime
-
             prev_end = datetime.fromisoformat(previous.finished_at)
             curr_start = datetime.fromisoformat(current.started_at)
             gaps[current.run_id] = str(round((curr_start - prev_end).total_seconds()))
@@ -389,7 +394,7 @@ def _baseline_window(base_runs: list[dict], run_date: str) -> list[dict]:
     return window
 
 
-def _rebuild_comparison(summary_path: Path, comparison_path: Path) -> None:
+def rebuild_comparison(summary_path: Path, comparison_path: Path) -> None:
     """prompt_id별로, BASE의 최근 `BASELINE_WINDOW`건을 기준선으로 비교한다.
 
     prompt_id로 나누지 않으면 large preset BASE가 small preset HEADROOM과
@@ -527,7 +532,7 @@ def _collect_jobs(
     if new_summary_rows:
         _append(activity_path, ACTIVITY_COLUMNS, new_activity_rows)
         _append(summary_path, SUMMARY_COLUMNS, new_summary_rows)
-        _rebuild_comparison(summary_path, comparison_path)
+        rebuild_comparison(summary_path, comparison_path)
 
     return {"runs": len(new_summary_rows), "turns": len(new_activity_rows)}
 
@@ -544,10 +549,7 @@ def _append(path: Path, columns: tuple, rows: list[list]) -> None:
 
 
 
-_OUTPUT_NAMES = (
-    "token-bench-results.csv", "activity-log.csv", "run-summary.csv",
-    "comparison.csv", "run-diagnostics.json",
-)
+_OUTPUT_NAMES = DATA_FILE_NAMES
 
 
 def _restore(data_dir: Path, journal: Path) -> None:
@@ -604,7 +606,7 @@ def _publish_transaction(data_dir: Path, operation):
 def _attempt_keys(jobs, data_dir: Path) -> dict:
     """이전에 부분 게시된 시도도 두 표에서 같은 키로 완성한다."""
     keys, pairs = set(), {}
-    for name, status in [("token-bench-results.csv", "status"), ("run-summary.csv", "terminal_reason")]:
+    for name, status in [(RESULTS_FILE, "status"), (SUMMARY_FILE, "terminal_reason")]:
         path = data_dir / name
         if not path.is_file():
             continue
@@ -624,17 +626,17 @@ def _attempt_keys(jobs, data_dir: Path) -> dict:
     return pairs
 
 
-def sync_published(*, db_path: Path, data_dir: Path = Path("data"), diagnose: bool = True) -> dict:
+def sync_published(*, db_path: Path, data_dir: Path = DATA_DIR, diagnose: bool = True) -> dict:
     """완료 작업을 한 번 조회하고 모든 게시물을 같은 시도 키로 동기화한다."""
     def synchronize(stage):
         jobs = list_jobs(db_path=db_path)
         run_ids = _attempt_keys(jobs, stage)
         activity = _collect_jobs(
             jobs, run_ids=run_ids, diagnose=diagnose,
-            activity_path=stage / "activity-log.csv", summary_path=stage / "run-summary.csv",
-            comparison_path=stage / "comparison.csv", diagnostics_path=stage / "run-diagnostics.json",
+            activity_path=stage / ACTIVITY_FILE, summary_path=stage / SUMMARY_FILE,
+            comparison_path=stage / COMPARISON_FILE, diagnostics_path=stage / DIAGNOSTICS_FILE,
         )
-        rows = _publish_jobs(jobs, output_path=stage / "token-bench-results.csv", run_ids=run_ids)
+        rows = _publish_jobs(jobs, output_path=stage / RESULTS_FILE, run_ids=run_ids)
         return {**activity, "published_count": len(rows), "published_rows": rows}
     return _publish_transaction(data_dir, synchronize)
 

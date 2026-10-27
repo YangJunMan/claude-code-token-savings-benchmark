@@ -56,12 +56,16 @@ def test_settings_page_exposes_custom_prompt_path():
     assert "prompt_path" in js
 
 
-def test_settings_page_exposes_preset_choices_matching_workspace():
+def test_settings_page_takes_preset_choices_from_the_api():
+    """프리셋 목록을 HTML에 따로 적으면 workspace.PROMPT_PRESETS와 어긋난다.
+    목록은 /api/conditions의 presets로만 채운다(값 자체는 test_webapi가 확인)."""
     from token_bench.workspace import PROMPT_PRESETS
 
     html = INDEX_HTML.read_text(encoding="utf-8")
     for name in PROMPT_PRESETS:
-        assert f'value="{name}"' in html, f"index.html에 프리셋 '{name}' 옵션이 없다."
+        assert f'value="{name}"' not in html, f"index.html에 프리셋 '{name}'이 하드코딩돼 있다."
+    js_source = SETTINGS_JS.read_text(encoding="utf-8")
+    assert "renderPresetOptions(body.presets)" in js_source
 
 
 def test_settings_js_submits_the_digest_of_the_plan_it_displayed():

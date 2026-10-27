@@ -137,7 +137,7 @@ def test_estimate_accepts_an_explicit_isolation_mode():
             [sys.executable, "-m", "token_bench", "estimate", "--only", condition,
              "--isolation", "project-settings", "--timeout-seconds", "1800",
              "--preset", "small"],
-            capture_output=True, text=True,
+            capture_output=True, text=True, encoding="utf-8",  # CLI는 항상 UTF-8로 출력한다
         )
         if out.returncode != 0:
             pytest.skip(f"이 환경에서 {condition} preflight를 통과하지 못한다")
@@ -177,3 +177,12 @@ def test_counts_only_the_requested_model(tmp_path):
     assert next_preset(path, conditions_path=CONDITIONS, model="model-new") == "small"
     assert successful_runs_by_condition(path, prompt_id="small", model="model-new") == {}
     assert next_preset(path, conditions_path=CONDITIONS) == "large"  # 모델 미지정: 전체
+
+
+def test_quarantined_runs_do_not_count_toward_the_threshold(tmp_path):
+    """성공했지만 평균에서 제외된(measurable=0) 실행은 표본이 아니다."""
+    rows = _runs("small", per_condition={"BASE": 2})
+    rows[0]["measurable"] = "0"
+    rows[1]["measurable"] = "1"
+    path = _summary(tmp_path / "run-summary.csv", rows)
+    assert successful_runs_by_condition(path, prompt_id="small") == {"BASE": 1}

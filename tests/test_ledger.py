@@ -28,7 +28,7 @@ def test_ledger_staging_error_preserves_existing_outputs(tmp_path, monkeypatch):
     before = marker.read_bytes()
     def fail(*args, **kwargs):
         raise OSError("disk full")
-    monkeypatch.setattr("token_bench.ledger._rebuild_comparison", fail)
+    monkeypatch.setattr("token_bench.ledger.rebuild_comparison", fail)
     with pytest.raises(OSError, match="disk full"):
         sync_published(db_path=db, data_dir=data, diagnose=False)
     assert marker.read_bytes() == before

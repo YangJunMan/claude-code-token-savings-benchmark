@@ -13,6 +13,8 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
 SCHEMA_VERSION = 1
+# CLI·웹 API·스케줄러가 모두 이 경로 하나를 기본값으로 쓴다.
+DEFAULT_CONDITIONS_PATH = Path("benchmark/conditions.json")
 
 # 검증된 사용 방식이 없는 generic arg는 runner 불변식을 우회할 수 있어 허용하지 않는다.
 ALLOWED_INJECTION_TYPES = frozenset(
@@ -38,8 +40,9 @@ _GITHUB_REPOSITORY_URL = re.compile(
     r"^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\.git)?$"
 )
 _CONDITION_KEYS = frozenset(
-    {"id", "repeat", "requires_tools", "tool_probes", "repository_url", "injections"}
+    {"id", "label", "repeat", "requires_tools", "tool_probes", "repository_url", "injections"}
 )
+_LABEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 _INJECTION_KEYS_BY_TYPE = {
     "prompt_overlay": frozenset({"type", "path"}),
     "config_ref": frozenset({"type", "path"}),
@@ -51,6 +54,21 @@ _INJECTION_KEYS_BY_TYPE = {
 
 class ConditionError(ValueError):
     """선언이 잘못되었을 때 발생한다."""
+
+
+def is_repo_relative(path: str) -> bool:
+    """저장소 안을 가리키는 상대경로인가. 조건 선언과 웹 API가 같은 규칙을 쓴다.
+
+    Windows의 `C:foo`(드라이브 상대경로)는 `is_absolute()`가 거짓이지만 저장소
+    밖을 가리킬 수 있어 드라이브가 붙은 경로도 거부한다.
+    """
+
+    posix = PurePosixPath(path)
+    windows = PureWindowsPath(path)
+    return not (
+        posix.is_absolute() or windows.is_absolute() or windows.drive
+        or ".." in posix.parts or ".." in windows.parts
+    )
 
 
 @dataclass(frozen=True)
@@ -73,6 +91,8 @@ class Condition:
     tool_probes: tuple[tuple[str, tuple[str, ...]], ...]
     injections: tuple[Injection, ...]
     repository_url: str | None = None
+    # 공개 CSV와 웹에 보이는 이름(예: be-brief -> BE_BRIEF). 없으면 id를 쓴다.
+    label: str = ""
 
 
 @dataclass(frozen=True)
@@ -158,9 +178,7 @@ def _parse_injection(raw: Any, *, condition_id: str, index: int) -> Injection:
                 f"조건 '{condition_id}'의 injections[{index}]는 'path'가 필요하다."
             )
         if inj_type in ("prompt_overlay", "config_ref"):
-            posix = PurePosixPath(path)
-            windows = PureWindowsPath(path)
-            if posix.is_absolute() or windows.is_absolute() or ".." in posix.parts:
+            if not is_repo_relative(path):
                 raise ConditionError(
                     f"조건 '{condition_id}'의 injections[{index}] path는 "
                     "저장소 내부 상대경로여야 한다."
@@ -173,9 +191,7 @@ def _parse_injection(raw: Any, *, condition_id: str, index: int) -> Injection:
                         f"조건 '{condition_id}'의 injections[{index}]의 "
                         "'fingerprint_path'는 비어 있지 않은 문자열이어야 한다."
                     )
-                posix = PurePosixPath(fingerprint_path)
-                windows = PureWindowsPath(fingerprint_path)
-                if posix.is_absolute() or windows.is_absolute() or ".." in posix.parts:
+                if not is_repo_relative(fingerprint_path):
                     raise ConditionError(
                         f"조건 '{condition_id}'의 injections[{index}] "
                         "fingerprint_path는 plugin_dir 내부 상대경로여야 한다."
@@ -222,6 +238,13 @@ def _parse_condition(raw: Any, *, index: int) -> Condition:
         raise ConditionError(
             f"conditions[{index}]의 id는 소문자 영숫자로 시작하고 "
             "소문자 영숫자·점·밑줄·하이픈만 포함해야 한다."
+        )
+
+    label = raw.get("label", cond_id)
+    if not isinstance(label, str) or not _LABEL.fullmatch(label):
+        raise ConditionError(
+            f"조건 '{cond_id}'의 label은 영숫자로 시작하고 영숫자·점·밑줄·하이픈만 "
+            "포함해야 한다."
         )
 
     repeat = raw.get("repeat", 1)
@@ -294,6 +317,7 @@ def _parse_condition(raw: Any, *, index: int) -> Condition:
         ),
         injections=injections,
         repository_url=repository_url,
+        label=label,
     )
 
 
@@ -331,12 +355,25 @@ def load_conditions(path: Path) -> list[Condition]:
     ]
 
     seen_ids: set[str] = set()
+    seen_labels: set[str] = set()
     for condition in conditions:
         if condition.id in seen_ids:
             raise ConditionError(f"조건 id '{condition.id}'가 중복되었다.")
+        if condition.label in seen_labels:
+            raise ConditionError(f"조건 label '{condition.label}'이 중복되었다.")
         seen_ids.add(condition.id)
+        seen_labels.add(condition.label)
 
     return conditions
+
+
+def condition_labels(path: Path = DEFAULT_CONDITIONS_PATH) -> dict[str, str]:
+    """조건 id -> 표시 이름. 선언 파일을 읽을 수 없으면 빈 사전(호출자는 id를 쓴다)."""
+
+    try:
+        return {c.id: c.label for c in load_conditions(path)}
+    except ConditionError:
+        return {}
 
 
 def expand_runs(conditions: list[Condition]) -> list[RunSpec]:

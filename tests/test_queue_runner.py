@@ -19,3 +19,13 @@ def test_empty_queue_and_stopped_runner_exit_without_waiting(tmp_path):
     assert runner.run(exit_when_empty=True) == 0
     runner.stop()
     assert runner.run() == 0
+
+
+def test_unattended_run_stops_instead_of_sleeping_on_usage_limit(tmp_path, monkeypatch):
+    """CI의 `work --exit-when-empty`가 한도에 걸려 30분을 그냥 기다리지 않는다."""
+    db, job = _make_finished_job(tmp_path, status="timeout")
+    retry_job(job.run_id, db_path=db)
+    monkeypatch.setattr("token_bench.queue_runner.process_job", lambda *a, **k: "rate-limited")
+    runner = QueueRunner(db_path=db)
+    monkeypatch.setattr(runner._shutdown, "wait", lambda *_: (_ for _ in ()).throw(AssertionError("기다리면 안 된다")))
+    assert runner.run(exit_when_empty=True) == 1

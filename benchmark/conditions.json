@@ -3,6 +3,7 @@
   "conditions": [
     {
       "id": "base",
+      "label": "BASE",
       "repeat": 1,
       "requires_tools": [],
       "tool_probes": {},
@@ -10,6 +11,7 @@
     },
     {
       "id": "be-brief",
+      "label": "BE_BRIEF",
       "repeat": 1,
       "requires_tools": [],
       "tool_probes": {},
@@ -22,6 +24,7 @@
     },
     {
       "id": "headroom",
+      "label": "HEADROOM",
       "repeat": 1,
       "requires_tools": [
         "headroom"
@@ -56,6 +59,7 @@
     },
     {
       "id": "caveman-full",
+      "label": "CAVEMAN-FULL",
       "repeat": 1,
       "requires_tools": [],
       "tool_probes": {},
@@ -74,6 +78,7 @@
     },
     {
       "id": "rtk",
+      "label": "RTK",
       "repeat": 1,
       "requires_tools": [
         "rtk"

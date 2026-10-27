@@ -1,7 +1,7 @@
 import csv
 from pathlib import Path
 
-from token_bench.collect import SUMMARY_COLUMNS, _rebuild_comparison
+from token_bench.collect import SUMMARY_COLUMNS, rebuild_comparison
 
 
 def _write_summary(path: Path, rows: list[dict]) -> None:
@@ -32,7 +32,7 @@ def _comparison(tmp_path, rows) -> list[dict]:
     summary_path = tmp_path / "run-summary.csv"
     comparison_path = tmp_path / "comparison.csv"
     _write_summary(summary_path, rows)
-    _rebuild_comparison(summary_path, comparison_path)
+    rebuild_comparison(summary_path, comparison_path)
     with comparison_path.open(encoding="utf-8") as f:
         return list(csv.DictReader(f))
 
