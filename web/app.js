@@ -371,10 +371,12 @@ function judge(data) {
     : { kind: "unclear", label: "효과 미확인", clears };
 }
 
-/* 평균에 넣을 수 있는 실행. 하나도 없으면 참고용으로 제외된 실행을 돌려준다. */
+/* 그래프에 올릴 실행. BASE와 비교할 수 있으면 평균에 넣을 수 있는 실행만 쓰고,
+   비교할 수 없으면(fallback) 제외된 실행까지 참고용으로 함께 돌려준다. 각 점이
+   평균에 들어가는지는 run.measurable로 구분해 그린다. */
 function plottableRuns(data) {
   const valid = data.runs.filter((r) => r.measurable && r.costKnown);
-  return valid.length
+  return data.rows.length
     ? { runs: valid, fallback: false }
     : { runs: data.runs.filter((r) => r.costKnown), fallback: true };
 }
@@ -557,12 +559,16 @@ function emptyReason(data) {
   const excluded = data.runs.filter((r) => !r.measurable);
   const reasons = [...new Set(excluded.map((r) => friendlyInvalid(r.invalidReason)))];
   const missing = knownConditions().filter((c) => !data.runs.some((r) => r.condition === c));
+  const validConds = new Set(data.runs.filter((r) => r.measurable).map((r) => r.condition));
   const parts = [];
   if (!data.runs.length) parts.push("이 과제·모델 조합에는 실행 기록이 없습니다.");
   else if (excluded.length === data.runs.length) {
     parts.push(`이 과제의 실행 ${data.runs.length}건은 모두 평균에서 제외됐습니다(${reasons.join(", ")}).`);
+  } else if (!validConds.has("BASE")) {
+    parts.push(`비교 기준이 되는 BASE의 유효한 실행이 없습니다. 유효한 실행이 있는 기법: ${[...validConds].sort(conditionSort).join(", ")}.`);
+    if (excluded.length) parts.push(`나머지 ${excluded.length}건은 평균에서 제외됐습니다(${reasons.join(", ")}).`);
   } else {
-    parts.push("같은 회차에 BASE와 비교 기법이 함께 있는 유효한 실행이 없습니다.");
+    parts.push("BASE와 비교할 다른 기법의 유효한 실행이 없습니다.");
   }
   if (missing.length && data.runs.length) parts.push(`${missing.join(", ")}은(는) 이 과제의 실행 기록이 없습니다.`);
   return parts.join(" ");
@@ -605,11 +611,14 @@ function drawStrip(data) {
   if (intro) {
     intro.dataset.normal ??= intro.innerHTML;
     intro.innerHTML = fallback
-      ? "점 하나가 실행 1회입니다. 이 과제는 평균에 넣을 수 있는 실행이 없어, 제외된 실행의 비용을 참고용으로만 속이 빈 점으로 보여 줍니다."
+      ? "점 하나가 실행 1회입니다. 이 과제는 BASE와 비교할 수 있는 실행이 모이지 않아 평균과 흔들림 범위를 그리지 않습니다. 속이 빈 점은 평균에서 제외된 실행입니다."
       : intro.dataset.normal;
   }
+  const hasValid = runs.some((r) => r.measurable);
+  const hasExcluded = runs.some((r) => !r.measurable);
   legend.innerHTML = fallback
-    ? `<span><i class="swatch dot hollow"></i>평균에서 제외된 실행 (참고용)</span>`
+    ? [hasValid ? `<span><i class="swatch dot"></i>유효한 실행</span>` : "",
+      hasExcluded ? `<span><i class="swatch dot hollow"></i>평균에서 제외된 실행 (참고용)</span>` : ""].join("")
     : `<span><i class="swatch dot"></i>실행 1회</span>
     <span><i class="swatch bar"></i>평균</span><span><i class="swatch band"></i>BASE가 흔들린 범위</span>`;
   const known = knownConditions();
@@ -624,8 +633,9 @@ function drawStrip(data) {
     return;
   }
 
+  // 눈금은 보기 좋은 간격 중 칸이 8개 이하가 되는 가장 촘촘한 것을 고르고, 축은 눈금에서 끝낸다.
   const rawMax = Math.max(...runs.map((r) => r.cost)) * 1.06;
-  const step = Math.max(0.5, Math.ceil(rawMax / 4 / 0.5) * 0.5);
+  const step = [0.25, 0.5, 1, 2, 5, 10, 25, 50].find((s) => rawMax / s <= 8) || Math.ceil(rawMax / 8);
   const maxCost = Math.ceil(rawMax / step) * step;
   const x = (v) => padL + (v / maxCost) * (width - padL - padR);
   for (let t = 0; t <= maxCost + 1e-9; t += step) {
@@ -657,11 +667,11 @@ function drawStrip(data) {
     }
     mine.forEach((r, k) => {
       const jitter = (((k * 37) % 11) - 5) / 5 * 20;
-      const dot = fallback
-        ? el("circle", { cx: x(r.cost), cy: yc + jitter, r: 6, fill: "none", stroke: ink(role), "stroke-width": 2, "data-cond": cond }, svg)
-        : el("circle", { cx: x(r.cost), cy: yc + jitter, r: 5, fill: ink(role), "fill-opacity": ".85",
-          stroke: ink("--surface-1"), "stroke-width": 2, "data-cond": cond }, svg);
-      hoverable(dot, `<b>${cond}</b><br>${r.run_date}<br>비용 <b>$${r.cost.toFixed(2)}</b>${fallback ? `<br>평균 제외: ${friendlyInvalid(r.invalidReason)}` : ""}`);
+      const dot = r.measurable
+        ? el("circle", { cx: x(r.cost), cy: yc + jitter, r: 5, fill: ink(role), "fill-opacity": ".85",
+          stroke: ink("--surface-1"), "stroke-width": 2, "data-cond": cond }, svg)
+        : el("circle", { cx: x(r.cost), cy: yc + jitter, r: 6, fill: "none", stroke: ink(role), "stroke-width": 2, "data-cond": cond }, svg);
+      hoverable(dot, `<b>${cond}</b><br>${r.run_date}<br>비용 <b>$${r.cost.toFixed(2)}</b>${r.measurable ? "" : `<br>평균 제외: ${friendlyInvalid(r.invalidReason)}`}`);
     });
     if (fallback) return;
     const avg = mine.reduce((a, r) => a + r.cost, 0) / mine.length;
@@ -1286,7 +1296,7 @@ function drawTrend(data) {
   [...runs].sort((a, b) => conditionSort(a.condition, b.condition)).forEach((r) => {
     if (!byCondition.has(r.condition)) byCondition.set(r.condition, new Map());
     const perDate = byCondition.get(r.condition);
-    perDate.set(r.run_date, [...(perDate.get(r.run_date) || []), r.cost]);
+    perDate.set(r.run_date, [...(perDate.get(r.run_date) || []), r]);
   });
   const dates = [...new Set(runs.map((r) => r.run_date))].sort(byBatch);
 
@@ -1320,7 +1330,7 @@ function drawTrend(data) {
     const { role, dash } = conditionStyle(condition);
     const pts = dates.map((d, i) => {
       const arr = perDate.get(d);
-      return arr ? [px(i), py(mean(arr)), arr, d] : null;
+      return arr ? [px(i), py(avgOf(arr, "cost")), arr, d] : null;
     }).filter(Boolean);
     if (pts.length > 1) {
       el("path", { d: pts.map(([x, y], i) => `${i ? "L" : "M"}${x} ${y}`).join(" "),
@@ -1329,11 +1339,15 @@ function drawTrend(data) {
     }
     pts.forEach(([x, y, arr, d]) => {
       const r = step > 22 || pts.length === 1 ? 4.5 : step > 10 ? 3 : 0;
+      // 그 회차에 평균에서 제외된 실행이 섞여 있으면 속이 빈 점으로 표시한다.
+      const excluded = arr.filter((run) => !run.measurable);
+      const hollow = excluded.length > 0;
       const c = r
-        ? el("circle", { cx: x, cy: y, r, fill: fallback ? ink("--surface-1") : ink(role),
-          stroke: fallback ? ink(role) : ink("--surface-1"), "stroke-width": fallback ? 2 : 1.8, "data-cond": condition }, svg)
+        ? el("circle", { cx: x, cy: y, r, fill: hollow ? ink("--surface-1") : ink(role),
+          stroke: hollow ? ink(role) : ink("--surface-1"), "stroke-width": hollow ? 2 : 1.8, "data-cond": condition }, svg)
         : el("circle", { cx: x, cy: y, r: 6, fill: "transparent" }, svg);
-      hoverable(c, `<b>${condition}</b><br>${d}<br>평균 비용 <b>${usd(mean(arr))}</b><br>실행 ${fmt(arr.length)}건`);
+      const why = hollow ? `<br>평균 제외 ${fmt(excluded.length)}건: ${friendlyInvalid(excluded[0].invalidReason)}` : "";
+      hoverable(c, `<b>${condition}</b><br>${d}<br>평균 비용 <b>${usd(avgOf(arr, "cost"))}</b><br>실행 ${fmt(arr.length)}건${why}`);
     });
     if (pts.length) endLabels.push({ condition, role, x: pts[pts.length - 1][0], y: pts[pts.length - 1][1] });
   });
@@ -1363,7 +1377,7 @@ function drawTrend(data) {
   const parts = [dates.length < 2
     ? `회차가 ${fmt(dates.length)}개뿐이라 추세선 대신 점으로 표시했습니다.`
     : `총 ${fmt(dates.length)}개 회차의 평균 비용 흐름입니다. 점에 마우스를 올리면 그 회차의 값이 보입니다.`];
-  if (fallback) parts.push(`${emptyReason(data)} 점선과 속이 빈 점은 참고용입니다.`);
+  if (fallback) parts.push(`${emptyReason(data)} 속이 빈 점은 평균에서 제외된 실행이 포함된 회차입니다.`);
   note.textContent = parts.join(" ");
 }
 
