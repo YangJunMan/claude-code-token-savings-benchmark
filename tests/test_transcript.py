@@ -29,3 +29,11 @@ def test_missing_and_malformed_logs_preserve_missing_reasons(tmp_path):
     assert transcript.has_output
     assert transcript.result_event == {}
     assert "JSON Lines" in transcript.parse_error
+
+
+def test_weekly_and_other_hit_limit_messages_count_as_usage_limits():
+    from token_bench.transcript import is_usage_limit_error
+
+    assert is_usage_limit_error("You've hit your weekly limit · resets 7pm (UTC)")
+    assert is_usage_limit_error("You've hit your Opus limit · resets 3am")
+    assert not is_usage_limit_error("tool call failed: file not found")

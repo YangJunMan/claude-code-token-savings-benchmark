@@ -64,6 +64,12 @@ class QueueRunner:
                             self._current_run_id = None
                     if once:
                         return 0 if status == "succeeded" else 1
+                    if status == "rate-limited" and exit_when_empty:
+                        # 무인 실행(CI의 `work --exit-when-empty`)에서 30분을 기다리면
+                        # job 시간 한도만 태우고 한도는 그대로다. 작업은 이미 큐에
+                        # 되돌렸으니 여기서 끝내고 다음 예약 실행에 맡긴다.
+                        print("구독 사용 한도로 보여 이번 실행을 끝낸다.", file=sys.stderr)
+                        return 1
                     if status == "rate-limited":
                         print(f"{RATE_LIMIT_BACKOFF_SECONDS}초 쉬었다가 다시 시도한다.", file=sys.stderr)
                         self._shutdown.wait(RATE_LIMIT_BACKOFF_SECONDS)

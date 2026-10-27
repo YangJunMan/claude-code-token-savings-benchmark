@@ -429,3 +429,52 @@ def test_auto_run_executes_queued_job_and_stop_button_cancels_it(tmp_path, monke
         srv.shutdown()
         srv.server_close()
         thread.join(timeout=5)
+
+
+def _raw_post(server, path: str, body: bytes, headers: dict):
+    req = urllib.request.Request(_url(server, path), data=body, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return resp.status
+    except urllib.error.HTTPError as exc:
+        return exc.code
+
+
+def test_cross_site_simple_post_is_rejected(sandbox, server):
+    """다른 사이트가 preflight 없는 text/plain POST로 실험을 지우거나 등록하지 못한다."""
+    body = json.dumps({"run_id": "x"}).encode()
+    assert _raw_post(server, "/api/delete", body, {
+        "Content-Type": "text/plain", "Origin": "https://evil.example",
+    }) == 403
+    assert _raw_post(server, "/api/delete", body, {"Content-Type": "text/plain"}) == 415
+
+
+def test_foreign_host_header_is_rejected(sandbox, server):
+    """DNS rebinding으로 외부 도메인 이름을 단 요청은 받지 않는다."""
+    req = urllib.request.Request(_url(server, "/api/status"), headers={"Host": "evil.example"})
+    with pytest.raises(urllib.error.HTTPError) as caught:
+        urllib.request.urlopen(req, timeout=10)
+    assert caught.value.code == 403
+
+
+def test_plan_path_outside_runs_root_is_rejected(sandbox, server):
+    outside = sandbox / "plan.json"
+    outside.write_text("{}", encoding="utf-8")
+    status, body = _post_json(server, "/api/approve", {"plan_path": str(outside), "confirm_digest": "d"})
+    assert status == 400
+    assert not (sandbox / "approval.json").exists()
+
+
+def test_estimate_rejects_prompt_path_outside_repository(sandbox, server):
+    status, _ = _post_json(server, "/api/estimate", {
+        "timeout_seconds": 60, "prompt_path": "../secret.md",
+    })
+    assert status == 400
+
+
+def test_conditions_response_lists_presets_from_one_source(sandbox, server):
+    from token_bench.workspace import PROMPT_PRESETS
+
+    status, body = _get_json(server, "/api/conditions")
+    assert status == 200
+    assert [p["id"] for p in body["presets"]] == list(PROMPT_PRESETS)

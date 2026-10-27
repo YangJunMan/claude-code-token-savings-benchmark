@@ -41,10 +41,14 @@ def tool_target(name, payload):
 _USAGE_LIMIT_KEYWORDS = (
     "usage limit",
     "session limit",
+    "weekly limit",
     "rate limit",
     "limit reached",
     "quota exceeded",
 )
+# "You've hit your <무엇> limit · resets ..." 꼴. 한도 종류(session·weekly·opus 등)가
+# 늘어도 문구 틀은 같아서 키워드 목록을 따라 늘리지 않아도 잡힌다.
+_HIT_LIMIT = re.compile(r"hit your [\w-]+(?: [\w-]+)? limit", re.IGNORECASE)
 
 
 def is_usage_limit_error(reason: str | None) -> bool:
@@ -52,14 +56,18 @@ def is_usage_limit_error(reason: str | None) -> bool:
 
     2026-09-15 실제 rtk 실행이 "You've hit your session limit · resets
     2:50am"으로 끊긴 사례(test_treatments.py)가 있어 "session limit"은
-    확인된 문구다. 나머지는 비슷한 다른 한도 메시지를 짐작으로 넓힌
-    것이라 다른 이유로 중단된 실행을 오탐할 수 있고, 반대로 놓칠 수도 있다.
+    확인된 문구다. 2026-10-21 bench 실행은 "You've hit your weekly limit"으로
+    끊겼는데 예전 목록에 없어 한도가 아닌 중단(blocked)으로 기록됐다. 나머지는
+    비슷한 다른 한도 메시지를 짐작으로 넓힌 것이라 다른 이유로 중단된 실행을
+    오탐할 수 있고, 반대로 놓칠 수도 있다.
     """
 
     if not reason:
         return False
     lowered = reason.lower()
-    return any(keyword in lowered for keyword in _USAGE_LIMIT_KEYWORDS)
+    return bool(_HIT_LIMIT.search(reason)) or any(
+        keyword in lowered for keyword in _USAGE_LIMIT_KEYWORDS
+    )
 
 
 @dataclass(frozen=True)

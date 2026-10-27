@@ -6,6 +6,7 @@ authorization.py가 검증한다. 실제 프로세스 실행은 worker.py가 담
 
 from __future__ import annotations
 
+import contextlib
 import json
 import sqlite3
 import time
@@ -127,36 +128,21 @@ def _drop_legacy_max_turns(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
-def _add_missing_isolation_column(conn: sqlite3.Connection) -> None:
-    """격리 모드가 없던 시절의 상태 저장소를 그대로 이어 쓰게 한다."""
+# 예전 버전이 만든 상태 저장소에 없을 수 있는 컬럼과 그 정의. 새 컬럼은 여기만 늘린다.
+_ADDED_COLUMNS = (
+    ("isolation", "TEXT NOT NULL DEFAULT 'safe-mode'"),
+    ("tool_fingerprints_json", "TEXT NOT NULL DEFAULT '[]'"),
+    ("model", "TEXT NOT NULL DEFAULT ''"),
+)
+
+
+def _add_missing_columns(conn: sqlite3.Connection) -> None:
+    """나중에 추가된 컬럼이 없던 시절의 상태 저장소를 그대로 이어 쓰게 한다."""
 
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(jobs);")}
-    if "isolation" in columns:
-        return
-    conn.execute(
-        "ALTER TABLE jobs ADD COLUMN isolation TEXT NOT NULL DEFAULT 'safe-mode';"
-    )
-    conn.commit()
-
-
-def _add_missing_model_column(conn: sqlite3.Connection) -> None:
-    """모델을 고정하지 않던 시절의 상태 저장소를 그대로 이어 쓰게 한다."""
-
-    columns = {row["name"] for row in conn.execute("PRAGMA table_info(jobs);")}
-    if "model" in columns:
-        return
-    conn.execute("ALTER TABLE jobs ADD COLUMN model TEXT NOT NULL DEFAULT '';")
-    conn.commit()
-
-
-def _add_missing_tool_fingerprints_column(conn: sqlite3.Connection) -> None:
-    columns = {row["name"] for row in conn.execute("PRAGMA table_info(jobs);")}
-    if "tool_fingerprints_json" in columns:
-        return
-    conn.execute(
-        "ALTER TABLE jobs ADD COLUMN tool_fingerprints_json "
-        "TEXT NOT NULL DEFAULT '[]';"
-    )
+    for name, definition in _ADDED_COLUMNS:
+        if name not in columns:
+            conn.execute(f"ALTER TABLE jobs ADD COLUMN {name} {definition};")
     conn.commit()
 
 
@@ -181,10 +167,31 @@ def _connect(db_path: Path) -> sqlite3.Connection:
             time.sleep(0.05 * (attempt + 1))
 
     _drop_legacy_max_turns(conn)
-    _add_missing_isolation_column(conn)
-    _add_missing_tool_fingerprints_column(conn)
-    _add_missing_model_column(conn)
+    _add_missing_columns(conn)
     return conn
+
+
+@contextlib.contextmanager
+def _transaction(db_path: Path):
+    """쓰기 잠금(BEGIN IMMEDIATE)을 잡은 연결. 정상 종료면 commit, 예외면 rollback."""
+
+    conn = _connect(db_path)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            yield conn
+            conn.commit()
+        except BaseException:
+            conn.rollback()
+            raise
+    finally:
+        conn.close()
+
+
+def _fetch(conn: sqlite3.Connection, run_id: str) -> JobRecord:
+    return _row_to_record(
+        conn.execute("SELECT * FROM jobs WHERE run_id = ?", (run_id,)).fetchone()
+    )
 
 
 def _row_to_record(row: sqlite3.Row) -> JobRecord:
@@ -239,65 +246,54 @@ def enqueue(
     if approval.plan != plan.to_dict():
         raise JobStoreError("승인이 검사한 계획과 지금 제출한 계획이 다르다.")
 
-    conn = _connect(db_path)
-    try:
-        conn.execute("BEGIN IMMEDIATE")
+    with _transaction(db_path) as conn:
+        existing = _jobs_for_digest(conn, plan.digest)
+        if existing:
+            return existing
+
+        now = datetime.now(timezone.utc).isoformat()
         try:
+            conn.execute(
+                "INSERT INTO consumed_approvals (digest, consumed_at) VALUES (?, ?)",
+                (plan.digest, now),
+            )
+        except sqlite3.IntegrityError:
+            # 다른 트랜잭션이 먼저 이 승인을 소비했다. 그 결과를 그대로 쓴다.
             existing = _jobs_for_digest(conn, plan.digest)
-            if existing:
-                conn.commit()
-                return existing
-
-            now = datetime.now(timezone.utc).isoformat()
-            try:
-                conn.execute(
-                    "INSERT INTO consumed_approvals (digest, consumed_at) VALUES (?, ?)",
-                    (plan.digest, now),
+            if not existing:
+                raise JobStoreError(
+                    "승인이 이미 소비된 것으로 기록되었지만 작업이 없다. "
+                    "상태 저장소가 손상되었을 수 있다."
                 )
-            except sqlite3.IntegrityError:
-                # 다른 트랜잭션이 먼저 이 승인을 소비했다. 그 결과를 그대로 쓴다.
-                existing = _jobs_for_digest(conn, plan.digest)
-                conn.commit()
-                if not existing:
-                    raise JobStoreError(
-                        "승인이 이미 소비된 것으로 기록되었지만 작업이 없다. "
-                        "상태 저장소가 손상되었을 수 있다."
-                    )
-                return existing
+            return existing
 
-            for run in plan.runs:
-                conn.execute(
-                    """
-                    INSERT INTO jobs (
-                        run_id, digest, batch_id, condition_id, repeat_index,
-                        content_id, workdir, snapshot_path,
-                        timeout_seconds, isolation, tool_fingerprints_json, model,
-                        status, enqueued_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?)
-                    """,
-                    (
-                        run["run_id"],
-                        plan.digest,
-                        plan.batch_id,
-                        run["condition_id"],
-                        run["repeat_index"],
-                        run["content_id"],
-                        run["workdir"],
-                        run["snapshot_path"],
-                        plan.timeout_seconds,
-                        plan.isolation,
-                        json.dumps(run.get("tool_fingerprints", []), sort_keys=True),
-                        plan.model,
-                        now,
-                    ),
-                )
-            conn.commit()
-            return _jobs_for_digest(conn, plan.digest)
-        except Exception:
-            conn.rollback()
-            raise
-    finally:
-        conn.close()
+        for run in plan.runs:
+            conn.execute(
+                """
+                INSERT INTO jobs (
+                    run_id, digest, batch_id, condition_id, repeat_index,
+                    content_id, workdir, snapshot_path,
+                    timeout_seconds, isolation, tool_fingerprints_json, model,
+                    status, enqueued_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?)
+                """,
+                (
+                    run["run_id"],
+                    plan.digest,
+                    plan.batch_id,
+                    run["condition_id"],
+                    run["repeat_index"],
+                    run["content_id"],
+                    run["workdir"],
+                    run["snapshot_path"],
+                    plan.timeout_seconds,
+                    plan.isolation,
+                    json.dumps(run.get("tool_fingerprints", []), sort_keys=True),
+                    plan.model,
+                    now,
+                ),
+            )
+        return _jobs_for_digest(conn, plan.digest)
 
 
 def list_jobs(*, db_path: Path = DEFAULT_DB_PATH) -> list[JobRecord]:
@@ -327,38 +323,23 @@ def claim_next_queued(*, db_path: Path = DEFAULT_DB_PATH) -> JobRecord | None:
     status='queued'`가 한쪽에서만 행에 매치된다.
     """
 
-    conn = _connect(db_path)
-    try:
-        conn.execute("BEGIN IMMEDIATE")
-        try:
-            row = conn.execute(
-                "SELECT run_id FROM jobs WHERE status = 'queued' ORDER BY sequence LIMIT 1"
-            ).fetchone()
-            if row is None:
-                conn.commit()
-                return None
+    with _transaction(db_path) as conn:
+        row = conn.execute(
+            "SELECT run_id FROM jobs WHERE status = 'queued' ORDER BY sequence LIMIT 1"
+        ).fetchone()
+        if row is None:
+            return None
 
-            now = datetime.now(timezone.utc).isoformat()
-            cursor = conn.execute(
-                "UPDATE jobs SET status = 'running', started_at = ? "
-                "WHERE run_id = ? AND status = 'queued'",
-                (now, row["run_id"]),
-            )
-            if cursor.rowcount == 0:
-                # 다른 worker가 그 사이에 먼저 선점했다.
-                conn.commit()
-                return None
-
-            claimed = conn.execute(
-                "SELECT * FROM jobs WHERE run_id = ?", (row["run_id"],)
-            ).fetchone()
-            conn.commit()
-            return _row_to_record(claimed)
-        except Exception:
-            conn.rollback()
-            raise
-    finally:
-        conn.close()
+        now = datetime.now(timezone.utc).isoformat()
+        cursor = conn.execute(
+            "UPDATE jobs SET status = 'running', started_at = ? "
+            "WHERE run_id = ? AND status = 'queued'",
+            (now, row["run_id"]),
+        )
+        if cursor.rowcount == 0:
+            # 다른 worker가 그 사이에 먼저 선점했다.
+            return None
+        return _fetch(conn, row["run_id"])
 
 
 def finish_job(
@@ -375,43 +356,31 @@ def finish_job(
 ) -> JobRecord:
     """'running' 상태인 작업 하나를 종료 정보와 함께 최종 상태로 옮긴다."""
 
-    conn = _connect(db_path)
-    try:
-        conn.execute("BEGIN IMMEDIATE")
-        try:
-            cursor = conn.execute(
-                """
-                UPDATE jobs SET
-                    status = ?, returncode = ?, finished_at = ?,
-                    duration_seconds = ?, stdout_path = ?, stderr_path = ?,
-                    command_json = ?
-                WHERE run_id = ? AND status = 'running'
-                """,
-                (
-                    status,
-                    returncode,
-                    finished_at,
-                    duration_seconds,
-                    stdout_path,
-                    stderr_path,
-                    command_json,
-                    run_id,
-                ),
+    with _transaction(db_path) as conn:
+        cursor = conn.execute(
+            """
+            UPDATE jobs SET
+                status = ?, returncode = ?, finished_at = ?,
+                duration_seconds = ?, stdout_path = ?, stderr_path = ?,
+                command_json = ?
+            WHERE run_id = ? AND status = 'running'
+            """,
+            (
+                status,
+                returncode,
+                finished_at,
+                duration_seconds,
+                stdout_path,
+                stderr_path,
+                command_json,
+                run_id,
+            ),
+        )
+        if cursor.rowcount == 0:
+            raise JobStoreError(
+                f"'running' 상태가 아닌 작업은 종료 처리할 수 없다: {run_id}"
             )
-            if cursor.rowcount == 0:
-                raise JobStoreError(
-                    f"'running' 상태가 아닌 작업은 종료 처리할 수 없다: {run_id}"
-                )
-            row = conn.execute(
-                "SELECT * FROM jobs WHERE run_id = ?", (run_id,)
-            ).fetchone()
-            conn.commit()
-            return _row_to_record(row)
-        except Exception:
-            conn.rollback()
-            raise
-    finally:
-        conn.close()
+        return _fetch(conn, run_id)
 
 
 def delete_job(run_id: str, *, db_path: Path = DEFAULT_DB_PATH) -> None:
@@ -422,22 +391,13 @@ def delete_job(run_id: str, *, db_path: Path = DEFAULT_DB_PATH) -> None:
     append-only 기록이라 여기서 지운다고 지난 결과가 사라지지 않는다.
     """
 
-    conn = _connect(db_path)
-    try:
-        conn.execute("BEGIN IMMEDIATE")
-        try:
-            cursor = conn.execute(
-                "DELETE FROM jobs WHERE run_id = ? AND status != 'running'",
-                (run_id,),
-            )
-            if cursor.rowcount == 0:
-                raise JobStoreError(f"삭제할 수 없는 작업이다(실행 중이거나 없음): {run_id}")
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-    finally:
-        conn.close()
+    with _transaction(db_path) as conn:
+        cursor = conn.execute(
+            "DELETE FROM jobs WHERE run_id = ? AND status != 'running'",
+            (run_id,),
+        )
+        if cursor.rowcount == 0:
+            raise JobStoreError(f"삭제할 수 없는 작업이다(실행 중이거나 없음): {run_id}")
 
 
 def retry_job(run_id: str, *, db_path: Path = DEFAULT_DB_PATH) -> JobRecord:
@@ -445,31 +405,22 @@ def retry_job(run_id: str, *, db_path: Path = DEFAULT_DB_PATH) -> JobRecord:
 
     웹의 "재시도" 버튼이 쓴다. 'succeeded'는 이미 측정된 결과라 대상이 아니고,
     'queued'/'running'은 이미 진행 중이라 대상이 아니다 — `blocked`/`failed`/
-    `cancelled`처럼 끝난 작업만 되돌린다.
+    `cancelled`처럼 끝난 작업만 되돌린다. 이전 시도의 종료 정보(returncode·
+    소요 시간·로그 경로)도 지운다 — 남기면 다시 도는 동안 웹이 지난 시도의
+    값을 이번 시도의 것처럼 보여 준다.
     """
 
-    conn = _connect(db_path)
-    try:
-        conn.execute("BEGIN IMMEDIATE")
-        try:
-            cursor = conn.execute(
-                "UPDATE jobs SET status = 'queued', started_at = NULL, "
-                "finished_at = NULL WHERE run_id = ? "
-                "AND status NOT IN ('queued', 'running', 'succeeded')",
-                (run_id,),
-            )
-            if cursor.rowcount == 0:
-                raise JobStoreError(f"재시도할 수 없는 상태의 작업이다: {run_id}")
-            row = conn.execute(
-                "SELECT * FROM jobs WHERE run_id = ?", (run_id,)
-            ).fetchone()
-            conn.commit()
-            return _row_to_record(row)
-        except Exception:
-            conn.rollback()
-            raise
-    finally:
-        conn.close()
+    with _transaction(db_path) as conn:
+        cursor = conn.execute(
+            "UPDATE jobs SET status = 'queued', started_at = NULL, finished_at = NULL, "
+            "returncode = NULL, duration_seconds = NULL, stdout_path = NULL, "
+            "stderr_path = NULL, command_json = NULL WHERE run_id = ? "
+            "AND status NOT IN ('queued', 'running', 'succeeded')",
+            (run_id,),
+        )
+        if cursor.rowcount == 0:
+            raise JobStoreError(f"재시도할 수 없는 상태의 작업이다: {run_id}")
+        return _fetch(conn, run_id)
 
 
 def requeue_job(run_id: str, *, db_path: Path = DEFAULT_DB_PATH) -> JobRecord:
@@ -479,29 +430,17 @@ def requeue_job(run_id: str, *, db_path: Path = DEFAULT_DB_PATH) -> JobRecord:
     쓴다 — `finish_job`과 달리 결과를 종료 상태로 기록하지 않는다.
     """
 
-    conn = _connect(db_path)
-    try:
-        conn.execute("BEGIN IMMEDIATE")
-        try:
-            cursor = conn.execute(
-                "UPDATE jobs SET status = 'queued', started_at = NULL "
-                "WHERE run_id = ? AND status = 'running'",
-                (run_id,),
+    with _transaction(db_path) as conn:
+        cursor = conn.execute(
+            "UPDATE jobs SET status = 'queued', started_at = NULL "
+            "WHERE run_id = ? AND status = 'running'",
+            (run_id,),
+        )
+        if cursor.rowcount == 0:
+            raise JobStoreError(
+                f"'running' 상태가 아닌 작업은 재시도로 되돌릴 수 없다: {run_id}"
             )
-            if cursor.rowcount == 0:
-                raise JobStoreError(
-                    f"'running' 상태가 아닌 작업은 재시도로 되돌릴 수 없다: {run_id}"
-                )
-            row = conn.execute(
-                "SELECT * FROM jobs WHERE run_id = ?", (run_id,)
-            ).fetchone()
-            conn.commit()
-            return _row_to_record(row)
-        except Exception:
-            conn.rollback()
-            raise
-    finally:
-        conn.close()
+        return _fetch(conn, run_id)
 
 
 def requeue_orphaned_running(*, db_path: Path = DEFAULT_DB_PATH) -> list[JobRecord]:
@@ -516,22 +455,11 @@ def requeue_orphaned_running(*, db_path: Path = DEFAULT_DB_PATH) -> list[JobReco
     않고 큐 맨 끝이 아니라 원래 자리(sequence)에서 그대로 재시도한다.
     """
 
-    conn = _connect(db_path)
-    try:
-        conn.execute("BEGIN IMMEDIATE")
-        try:
-            rows = conn.execute(
-                "SELECT * FROM jobs WHERE status = 'running'"
-            ).fetchall()
-            if rows:
-                conn.execute(
-                    "UPDATE jobs SET status = 'queued', started_at = NULL "
-                    "WHERE status = 'running'"
-                )
-            conn.commit()
-            return [_row_to_record(row) for row in rows]
-        except Exception:
-            conn.rollback()
-            raise
-    finally:
-        conn.close()
+    with _transaction(db_path) as conn:
+        rows = conn.execute("SELECT * FROM jobs WHERE status = 'running'").fetchall()
+        if rows:
+            conn.execute(
+                "UPDATE jobs SET status = 'queued', started_at = NULL "
+                "WHERE status = 'running'"
+            )
+        return [_row_to_record(row) for row in rows]

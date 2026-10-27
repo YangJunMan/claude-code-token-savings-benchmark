@@ -15,12 +15,17 @@ from urllib.parse import parse_qs, urlsplit
 from token_bench.add_condition import append_condition
 from token_bench.authorization import (
     AuthorizationError,
-    approve as approve_plan,
+    approve_plan_file,
     load_approval,
     load_plan,
-    save_json,
 )
-from token_bench.conditions import ConditionError, expand_runs, load_conditions
+from token_bench.conditions import (
+    DEFAULT_CONDITIONS_PATH,
+    ConditionError,
+    expand_runs,
+    is_repo_relative,
+    load_conditions,
+)
 from token_bench.intake import IntakeError, create_plan
 from token_bench.job_store import (
     DEFAULT_DB_PATH,
@@ -35,13 +40,33 @@ from token_bench.queue_runner import QueueRunner as AutoWorker
 from token_bench.log_tail import tail as tail_log
 from token_bench.preflight import unavailable_reasons
 from token_bench.workspace import (
+    DEFAULT_RUNS_ROOT,
+    PRESET_DESCRIPTIONS,
+    PROMPT_PRESETS,
     WorkspaceError,
     resolve_prompt_path,
 )
 
-DEFAULT_CONDITIONS_PATH = Path("benchmark/conditions.json")
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8787
+# 요청 본문 상한. 조건 하나·계획 경로 정도라 수 KB면 충분하다.
+MAX_BODY_BYTES = 1_000_000
+
+
+def _runs_file(raw: object, *, field: str) -> Path:
+    """요청으로 받은 계획·승인 파일 경로가 실행 디렉터리(.token-bench/runs) 안인지 확인한다.
+
+    이 경로로 파일을 읽고(승인 시) 그 옆에 approval.json을 쓰므로, 아무 경로나
+    받으면 저장소 밖 파일을 읽거나 엉뚱한 곳에 파일을 만들 수 있다.
+    """
+
+    if not isinstance(raw, str) or not raw:
+        raise ApiError(400, f"{field}가 필요하다.")
+    path = Path(raw)
+    root = DEFAULT_RUNS_ROOT.resolve()
+    if not path.resolve().is_relative_to(root):
+        raise ApiError(400, f"{field}는 {DEFAULT_RUNS_ROOT} 안의 파일이어야 한다: {raw}")
+    return path
 
 
 class ApiError(Exception):
@@ -51,6 +76,12 @@ class ApiError(Exception):
         super().__init__(message)
         self.status = status
         self.message = message
+
+
+def _presets_summary() -> list[dict]:
+    """웹의 과제 선택 목록. 프리셋 이름과 설명은 workspace.py 한 곳에서만 정한다."""
+
+    return [{"id": name, "description": PRESET_DESCRIPTIONS.get(name, "")} for name in PROMPT_PRESETS]
 
 
 def _conditions_summary(conditions_path: Path) -> list[dict]:
@@ -66,6 +97,7 @@ def _conditions_summary(conditions_path: Path) -> list[dict]:
     return [
         {
             "id": c.id,
+            "label": c.label,
             "repeat": c.repeat,
             "requires_tools": list(c.requires_tools),
             "repository_url": c.repository_url,
@@ -92,7 +124,10 @@ def _handle_estimate(body: dict, *, conditions_path: Path) -> dict:
         raise ApiError(400, "timeout_seconds는 정수여야 한다.")
 
     preset = body.get("preset")
-    raw_prompt_path = Path(body["prompt_path"]) if body.get("prompt_path") else None
+    raw_prompt = body.get("prompt_path")
+    if raw_prompt and (not isinstance(raw_prompt, str) or not is_repo_relative(raw_prompt)):
+        raise ApiError(400, f"prompt_path는 저장소 내부 상대경로여야 한다: {raw_prompt}")
+    raw_prompt_path = Path(raw_prompt) if raw_prompt else None
     try:
         prompt_path = resolve_prompt_path(preset=preset, prompt_path=raw_prompt_path)
     except WorkspaceError as exc:
@@ -112,31 +147,28 @@ def _handle_estimate(body: dict, *, conditions_path: Path) -> dict:
 
 
 def _handle_approve(body: dict) -> dict:
-    plan_path = body.get("plan_path")
     confirm_digest = body.get("confirm_digest")
-    if not plan_path or not confirm_digest:
+    if not body.get("plan_path") or not confirm_digest:
         raise ApiError(400, "plan_path와 confirm_digest가 필요하다.")
+    plan_path = _runs_file(body.get("plan_path"), field="plan_path")
 
     try:
-        plan = load_plan(Path(plan_path))
-        record = approve_plan(plan, confirmed_digest=confirm_digest)
+        record, approval_path = approve_plan_file(plan_path, confirmed_digest=confirm_digest)
     except AuthorizationError as exc:
         raise ApiError(400, str(exc)) from exc
 
-    approval_path = Path(plan_path).parent / "approval.json"
-    save_json(record.to_dict(), approval_path)
     return {"approval": record.to_dict(), "approval_path": str(approval_path)}
 
 
 def _handle_enqueue(body: dict, *, db_path: Path) -> dict:
-    plan_path = body.get("plan_path")
-    approval_path = body.get("approval_path")
-    if not plan_path or not approval_path:
+    if not body.get("plan_path") or not body.get("approval_path"):
         raise ApiError(400, "plan_path와 approval_path가 필요하다.")
+    plan_path = _runs_file(body.get("plan_path"), field="plan_path")
+    approval_path = _runs_file(body.get("approval_path"), field="approval_path")
 
     try:
-        plan = load_plan(Path(plan_path))
-        approval = load_approval(Path(approval_path))
+        plan = load_plan(plan_path)
+        approval = load_approval(approval_path)
         jobs = enqueue_jobs(plan, approval, db_path=db_path)
     except (AuthorizationError, JobStoreError) as exc:
         raise ApiError(400, str(exc)) from exc
@@ -188,12 +220,12 @@ def _handle_add_condition(body: dict, *, conditions_path: Path) -> dict:
             path = injection.get("path")
             if not isinstance(path, str) or not path:
                 raise ApiError(400, "prompt_overlay 주입에는 path가 필요하다.")
-            posix = Path(path)
-            if posix.is_absolute() or ".." in posix.parts:
+            if not is_repo_relative(path):
                 raise ApiError(400, f"path는 저장소 내부 상대경로여야 한다: {path}")
-            if not posix.is_file():
-                posix.parent.mkdir(parents=True, exist_ok=True)
-                posix.write_text(text.strip() + "\n", encoding="utf-8")
+            target = Path(path)
+            if not target.is_file():
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(text.strip() + "\n", encoding="utf-8")
         injections.append(injection)
     condition["injections"] = injections
 
@@ -227,6 +259,35 @@ def _is_local_origin(origin: str) -> bool:
     if parts.scheme not in ("http", "https"):
         return False
     return (parts.hostname or "") in LOCAL_ORIGIN_HOSTS
+
+
+def _is_local_host(host: str | None) -> bool:
+    """Host 헤더가 로컬 주소인가. DNS rebinding(외부 도메인이 127.0.0.1로 풀리게
+    해서 이 API를 같은 출처처럼 부르는 공격)을 막는다."""
+
+    if not host:
+        return False
+    return (urlsplit(f"//{host}").hostname or "") in LOCAL_ORIGIN_HOSTS
+
+
+def _reject_foreign_request(headers, *, method: str) -> None:
+    """다른 사이트에서 온 요청을 거부한다.
+
+    CORS 헤더는 응답을 읽지 못하게 할 뿐, 요청 자체는 막지 않는다. 브라우저는
+    `Content-Type: text/plain` POST를 preflight 없이 보내므로, 사용자가 열어 둔
+    아무 웹페이지가 실험 등록·삭제·파일 쓰기를 실행할 수 있었다. Host·Origin을
+    확인하고 POST는 JSON만 받는다(JSON POST는 브라우저가 반드시 preflight를 거친다).
+    """
+
+    if not _is_local_host(headers.get("Host")):
+        raise ApiError(403, "로컬 주소로만 접근할 수 있다.")
+    origin = headers.get("Origin")
+    if origin and not _is_local_origin(origin):
+        raise ApiError(403, "다른 출처의 요청은 받지 않는다.")
+    if method == "POST":
+        content_type = (headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        if content_type != "application/json":
+            raise ApiError(415, "POST 본문은 application/json이어야 한다.")
 
 
 def make_handler(
@@ -267,21 +328,34 @@ def make_handler(
             self.end_headers()
 
         def _read_json_body(self) -> dict:
-            length = int(self.headers.get("Content-Length", 0) or 0)
+            try:
+                length = int(self.headers.get("Content-Length", 0) or 0)
+            except ValueError as exc:
+                raise ApiError(400, "Content-Length가 올바르지 않다.") from exc
+            if length < 0 or length > MAX_BODY_BYTES:
+                raise ApiError(413, f"요청 본문은 {MAX_BODY_BYTES}바이트 이하여야 한다.")
             if length == 0:
                 return {}
             raw = self.rfile.read(length)
             try:
-                return json.loads(raw)
-            except json.JSONDecodeError as exc:
+                body = json.loads(raw)
+            except (json.JSONDecodeError, UnicodeDecodeError) as exc:
                 raise ApiError(400, f"요청 본문이 JSON이 아니다: {exc}") from exc
+            if not isinstance(body, dict):
+                raise ApiError(400, "요청 본문은 JSON 객체여야 한다.")
+            return body
 
         def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler가 요구하는 이름
             try:
+                _reject_foreign_request(self.headers, method="GET")
                 parsed = urlsplit(self.path)
                 if parsed.path == "/api/conditions":
                     self._send_json(
-                        200, {"conditions": _conditions_summary(conditions_path)}
+                        200,
+                        {
+                            "conditions": _conditions_summary(conditions_path),
+                            "presets": _presets_summary(),
+                        },
                     )
                 elif parsed.path == "/api/status":
                     self._send_json(
@@ -299,25 +373,27 @@ def make_handler(
 
         def do_POST(self) -> None:  # noqa: N802
             try:
+                _reject_foreign_request(self.headers, method="POST")
                 body = self._read_json_body()
-                if self.path == "/api/estimate":
+                path = urlsplit(self.path).path
+                if path == "/api/estimate":
                     self._send_json(
                         200, _handle_estimate(body, conditions_path=conditions_path)
                     )
-                elif self.path == "/api/approve":
+                elif path == "/api/approve":
                     self._send_json(200, _handle_approve(body))
-                elif self.path == "/api/enqueue":
+                elif path == "/api/enqueue":
                     self._send_json(200, _handle_enqueue(body, db_path=db_path))
-                elif self.path == "/api/add-condition":
+                elif path == "/api/add-condition":
                     self._send_json(
                         200,
                         _handle_add_condition(body, conditions_path=conditions_path),
                     )
-                elif self.path == "/api/stop":
+                elif path == "/api/stop":
                     self._send_json(200, {"stopped": auto_worker.stop_current()})
-                elif self.path == "/api/retry":
+                elif path == "/api/retry":
                     self._send_json(200, _handle_retry(body, db_path=db_path))
-                elif self.path == "/api/delete":
+                elif path == "/api/delete":
                     self._send_json(200, _handle_delete(body, db_path=db_path))
                 else:
                     self._send_json(404, {"error": "not found"})

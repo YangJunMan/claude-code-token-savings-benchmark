@@ -35,6 +35,12 @@ PROMPT_PRESETS: dict[str, Path] = {
     "large": Path("benchmark/prompts/preset-large.md"),
     "very-large": Path("benchmark/prompts/preset-very-large.md"),
 }
+# 웹 "실험 설정"의 과제 선택에 보이는 설명. 프리셋을 늘리면 여기만 같이 늘린다.
+PRESET_DESCRIPTIONS: dict[str, str] = {
+    "small": "기본 크기 과제",
+    "large": "토큰을 많이 쓰는 큰 과제",
+    "very-large": "토큰을 매우 많이 쓰는 과제",
+}
 
 
 class WorkspaceError(ValueError):

@@ -448,3 +448,19 @@ def test_inspect_without_filter_is_unchanged(tmp_path):
         {"conditions": [{"id": "base"}, {"id": "be-brief"}]},
     )
     assert [r.condition_id for r in inspect(path)] == [r.condition_id for r in inspect(path, include=None, exclude=None)]
+
+
+def test_repo_relative_rejects_drive_relative_and_parent_paths():
+    from token_bench.conditions import is_repo_relative
+
+    assert is_repo_relative("benchmark/prompts/be-brief.txt")
+    for bad in ("../x", "/etc/passwd", "C:\\x", "C:x", "a\\..\\..\\x"):
+        assert not is_repo_relative(bad), bad
+
+
+def test_labels_come_from_the_declaration():
+    from token_bench.conditions import condition_labels
+
+    labels = condition_labels(Path("benchmark/conditions.json"))
+    assert labels["be-brief"] == "BE_BRIEF"
+    assert labels["caveman-full"] == "CAVEMAN-FULL"

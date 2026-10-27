@@ -9,13 +9,16 @@ from pathlib import Path
 
 from token_bench.authorization import (
     AuthorizationError,
-    approve as approve_plan,
+    approve_plan_file,
     load_approval,
     load_plan,
-    save_json,
 )
 from token_bench.add_condition import append_condition, run_wizard
-from token_bench.conditions import ConditionError, inspect as inspect_conditions
+from token_bench.conditions import (
+    DEFAULT_CONDITIONS_PATH,
+    ConditionError,
+    inspect as inspect_conditions,
+)
 from token_bench.job_store import (
     DEFAULT_DB_PATH,
     JobStoreError,
@@ -47,8 +50,6 @@ from token_bench.workspace import (
     prepare_batch,
     resolve_prompt_path,
 )
-
-DEFAULT_CONDITIONS_PATH = Path("benchmark/conditions.json")
 
 
 def _add_selection_args(parser: argparse.ArgumentParser) -> None:
@@ -490,14 +491,11 @@ def _run_estimate(
 
 def _run_approve(plan_path: Path, *, confirmed_digest: str) -> int:
     try:
-        plan = load_plan(plan_path)
-        record = approve_plan(plan, confirmed_digest=confirmed_digest)
+        record, _ = approve_plan_file(plan_path, confirmed_digest=confirmed_digest)
     except AuthorizationError as exc:
         print(f"오류: {exc}", file=sys.stderr)
         return 1
 
-    approval_path = plan_path.parent / "approval.json"
-    save_json(record.to_dict(), approval_path)
     print(json.dumps(record.to_dict(), ensure_ascii=False, indent=2))
     return 0
 

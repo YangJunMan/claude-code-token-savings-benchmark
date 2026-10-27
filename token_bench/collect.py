@@ -3,11 +3,11 @@
 import csv
 from pathlib import Path
 
-from token_bench.conditions import load_conditions
+from token_bench.conditions import DEFAULT_CONDITIONS_PATH, load_conditions
 from token_bench.ledger import (
     BASELINE_WINDOW, DEFAULT_ACTIVITY_PATH, DEFAULT_COMPARISON_PATH,
     DEFAULT_DIAGNOSTICS_PATH, DEFAULT_SUMMARY_PATH, SUMMARY_COLUMNS,
-    collect, condition_label, _rebuild_comparison,
+    collect, condition_label, rebuild_comparison,
 )
 from token_bench.workspace import PROMPT_PRESETS
 
@@ -25,6 +25,10 @@ def successful_runs_by_condition(
 
     `succeeded`만 센다 — 중간에 끊긴 실행은 그 조건의 표본이 아니다. `model`을
     주면 그 모델의 실행만 센다 — 모델마다 표본을 따로 채운다.
+
+    `measurable=0`으로 표시된 실행도 세지 않는다. 성공했어도 평균에서 제외된
+    실행(예: 구버전 CLI로 돌아 격리된 실행)을 표본으로 세면, 비교에 쓸 수 있는
+    표본이 모자란 채로 다음 프리셋으로 넘어간다.
     """
 
     counts: dict[str, int] = {}
@@ -36,7 +40,7 @@ def successful_runs_by_condition(
                 continue
             if model is not None and row.get("model") != model:
                 continue
-            if row.get("terminal_reason") != "succeeded":
+            if row.get("terminal_reason") != "succeeded" or row.get("measurable") == "0":
                 continue
             condition = row.get("condition") or ""
             counts[condition] = counts.get(condition, 0) + 1
@@ -47,7 +51,7 @@ def condition_priority(
     summary_path: Path,
     *,
     preset: str,
-    conditions_path: Path = Path("benchmark/conditions.json"),
+    conditions_path: Path = DEFAULT_CONDITIONS_PATH,
     model: str | None = None,
 ) -> list[str]:
     """표본이 적은 조건부터 나열한다. 한 tick은 이 중 실제로 돌 수 있는 첫 조건을 쓴다.
@@ -75,7 +79,7 @@ def next_condition(
     summary_path: Path,
     *,
     preset: str,
-    conditions_path: Path = Path("benchmark/conditions.json"),
+    conditions_path: Path = DEFAULT_CONDITIONS_PATH,
 ) -> str:
     """표본이 가장 적은 조건 하나."""
 
@@ -87,7 +91,7 @@ def next_condition(
 def next_preset(
     summary_path: Path = DEFAULT_SUMMARY_PATH,
     *,
-    conditions_path: Path = Path("benchmark/conditions.json"),
+    conditions_path: Path = DEFAULT_CONDITIONS_PATH,
     runs_per_preset: int = RUNS_PER_PRESET,
     model: str | None = None,
 ) -> str:
