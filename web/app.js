@@ -2,8 +2,54 @@
 
 const NS = "http://www.w3.org/2000/svg";
 const fmt = (n) => Math.round(n).toLocaleString("en-US");
+/* 기법 이름은 어느 표에서나 같은 모양(BE_BRIEF 등)으로 유지한다. 이름표의 출처는
+   conditions.json의 label 하나다. 결과 CSV에는 id(be-brief)만 있으므로, 같은 실행의
+   run-summary.csv 행(condition 열 = label)을 run_id로 맞대어 이름을 찾는다. */
+let labelCache = { results: null, summary: null, map: new Map() };
+function conditionLabel(id) {
+  if (labelCache.results !== state.results || labelCache.summary !== state.summary) {
+    const byRun = new Map(state.summary.map((r) => [r.run_id, r.condition]));
+    const map = new Map();
+    state.results.forEach((r) => {
+      const label = byRun.get(r.run_id);
+      if (label && r.condition_id && !map.has(r.condition_id)) map.set(r.condition_id, label);
+    });
+    labelCache = { results: state.results, summary: state.summary, map };
+  }
+  return labelCache.map.get(id) || String(id || "");
+}
+const commas = (v) => (v === null || v === undefined || Number.isNaN(v) ? "—" : fmt(v));
+const usd = (v) => (v === null || v === undefined || Number.isNaN(v)
+  ? "—"
+  : "$" + Number(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
 const signed = (n) => (n >= 0 ? "+" : "−") + fmt(Math.abs(n));
 const pct = (n, digits = 1) => (n >= 0 ? "+" : "−") + Math.abs(n).toFixed(digits) + "%";
+
+const STATUS_LABEL = {
+  succeeded: "성공",
+  timeout: "시간 초과",
+  failed: "실패",
+  cancelled: "취소됨",
+  blocked: "중단됨",
+};
+const friendlyStatus = (status) => STATUS_LABEL[status] || status || "—";
+
+/* invalid_reason은 token_bench/ledger.py:_invalid_reason이 만든 이유를 "+"로 이은 값이다.
+   이유마다 따로 옮기고, 버전이 붙는 구버전 CLI 격리(legacy_cli_<버전>)는 형식으로 읽는다. */
+const INVALID_REASON_LABEL = {
+  execution_error: "실행 오류",
+  no_turns: "대화 기록 없음",
+  reconcile_unbalanced: "토큰 합계 불일치",
+  compacted: "대화 중간 요약(compaction) 발생",
+};
+function friendlyInvalid(reason) {
+  if (!reason) return "측정 불가";
+  return String(reason).split("+").map((part) => {
+    const legacy = /^legacy_cli_(.+)$/.exec(part);
+    if (legacy) return `구버전 CLI (${legacy[1]})`;
+    return INVALID_REASON_LABEL[part] || part;
+  }).join(", ");
+}
 
 /* ---------- CSV ---------- */
 
@@ -34,6 +80,26 @@ function toRecords(rows) {
 
 const num = (v) => (v === "" || v == null ? 0 : Number(v));
 
+/* ---------- table helpers ---------- */
+
+function addHeader(headRow, label, { extra = false, align = "" } = {}) {
+  const th = document.createElement("th");
+  th.textContent = label;
+  if (extra) th.classList.add("extra-col");
+  if (align) th.style.textAlign = align;
+  headRow.appendChild(th);
+  return th;
+}
+
+function addCell(row, text, { extra = false, className = "", align = "" } = {}) {
+  const td = row.insertCell();
+  td.textContent = text;
+  if (extra) td.classList.add("extra-col");
+  if (className) className.split(" ").filter(Boolean).forEach((c) => td.classList.add(c));
+  if (align) td.style.textAlign = align;
+  return td;
+}
+
 /* ---------- SVG helpers ---------- */
 
 function el(name, attrs = {}, parent) {
@@ -43,18 +109,19 @@ function el(name, attrs = {}, parent) {
   return node;
 }
 
-/* 카드 폭에 맞춰 그린다. 숨겨진 탭은 폭이 0으로 잡히므로 그때만 기본값을
-   쓰고, 탭이 보이는 순간 다시 그린다(showView -> render). */
+/* 카드 폭에 맞춰 그린다. 숨겨진 탭이나 접힌 details는 폭이 0으로 잡히므로
+   그때만 기본값을 쓰고, 화면에 나타나는 순간 다시 그린다. */
 function boxWidth(id, fallback) {
-  const host = document.getElementById(id).parentElement;
+  const target = document.getElementById(id);
+  const host = target ? target.parentElement : null;
   const available = host ? host.clientWidth : 0;
   return available > 80 ? available : fallback;
 }
 
-/* 그릴 내용이 그대로면 SVG를 다시 만들지 않는다. 탭 전환이나 폭 변화가
-   없는 리사이즈에서 화면이 깜빡이거나 밀리는 것을 막는다. */
+/* 그릴 내용이 그대로면 SVG를 다시 만들지 않는다. */
 function unchanged(id, signature) {
   const node = document.getElementById(id);
+  if (!node) return true;
   if (node.dataset.sig === signature) return true;
   node.dataset.sig = signature;
   return false;
@@ -78,7 +145,6 @@ function ink(role) {
   return getComputedStyle(document.documentElement).getPropertyValue(role).trim();
 }
 
-/* Rounded only on the data end, anchored to the baseline. */
 function barUp(x, y, w, h, r) {
   if (h <= 0) return `M${x} ${y} h${w}`;
   const rr = Math.min(r, w / 2, h);
@@ -100,6 +166,7 @@ function barLeft(x, y, w, h, r) {
 /* Node 기반 테스트는 순수 함수만 require 하므로 DOM 없이도 읽혀야 한다. */
 const tip = typeof document === "undefined" ? null : document.getElementById("tip");
 function showTip(event, html) {
+  if (!tip) return;
   tip.innerHTML = html;
   tip.classList.add("on");
   const pad = 14, box = tip.getBoundingClientRect();
@@ -109,7 +176,7 @@ function showTip(event, html) {
   tip.style.left = `${Math.max(8, x)}px`;
   tip.style.top = `${Math.max(8, y)}px`;
 }
-function hideTip() { tip.classList.remove("on"); }
+function hideTip() { if (tip) tip.classList.remove("on"); }
 
 function hoverable(node, html) {
   node.addEventListener("mousemove", (e) => showTip(e, html));
@@ -123,13 +190,13 @@ const state = {
   view: "overview", promptId: null, modelId: null, diagnostics: {}, results: [],
 };
 
-/* 전체 기록은 유지하되 모델·프롬프트를 골라 같은 과제끼리 비교한다. */
 function drawPicker(field, elementId, column) {
   let ids = [...new Set(state.summary.map((r) => r[column]).filter(Boolean))].sort();
   if (field === "promptId") {
     ids = ids.filter((id) => !id.startsWith("legacy:"));
   }
   const picker = document.getElementById(elementId);
+  if (!picker) return;
   if (state[field] && !ids.includes(state[field])) state[field] = null;
   picker.replaceChildren();
   const all = document.createElement("option");
@@ -144,8 +211,6 @@ function drawPicker(field, elementId, column) {
 
 const toolsOf = (row) => (row.tools ? row.tools.split(" ").filter(Boolean) : []);
 
-/* One turn can fire the same tool many times in parallel; listing it 15 times
-   buries the count that actually matters. */
 function toolSummary(row) {
   const names = toolsOf(row);
   if (!names.length) return "";
@@ -156,17 +221,15 @@ function toolSummary(row) {
 
 const targetsOf = (row) => (row.targets ? row.targets.split(" | ").filter(Boolean) : []);
 
-/* What a turn was doing, named from the tools it called - a classification of
-   recorded tool names, not a guess about intent. */
 const ROLES = {
   Read: "read", Glob: "read", Grep: "read", NotebookRead: "read", WebFetch: "read",
   Write: "write", Edit: "write", NotebookEdit: "write",
   Bash: "run", BashOutput: "run", KillShell: "run",
 };
 const ROLE_TEXT = {
-  read: ["파일을 읽어 들인", "읽어 들인 파일 내용이"],
-  write: ["파일을 쓴", "쓰기 도구가 돌려준 결과가"],
-  run: ["명령을 실행한", "명령 출력이"],
+  read: ["파일을 읽은", "읽어 들인 파일 내용이"],
+  write: ["파일을 작성·수정한", "쓰기 도구가 돌려준 결과가"],
+  run: ["명령어를 실행한", "명령어 출력이"],
   other: ["도구를 호출한", "도구가 돌려준 결과가"],
 };
 
@@ -179,7 +242,6 @@ function roleOf(row) {
   return { kind, counts, total, mixed: Object.values(counts).filter((v) => v > 0).length > 1 };
 }
 
-/* "gpu_platform/models.py 외 4개" - naming every file would bury the count. */
 function targetPhrase(row, limit = 2) {
   const targets = targetsOf(row);
   if (!targets.length) return "";
@@ -187,9 +249,6 @@ function targetPhrase(row, limit = 2) {
   return targets.length > limit ? `${head} 외 ${targets.length - limit}개` : head;
 }
 
-/* The palette has five series roles, so a sixth condition would repeat BASE's
-   colour. Pair the hue with a dash pattern: 20 combinations before anything
-   repeats, and no new palette entries to keep in sync. */
 const DASHES = ["", "7 3", "2 3", "9 3 2 3"];
 function seriesStyle(index) {
   return {
@@ -204,18 +263,13 @@ function turnsFor(runId) {
     .sort((a, b) => num(a.turn) - num(b.turn));
 }
 
-/* ---------- aggregation ----------
-
-   Every figure below is a sum or a subtraction of published columns.  The four
-   reconcile shares add up to the context the provider actually reread, so the
-   difference between two runs decomposes into the same four parts exactly -
-   which is what lets the report say *where* a condition saved without guessing.  */
+/* ---------- aggregation ---------- */
 
 const PARTS = [
-  ["opening", "초기 컨텍스트", "--series-1"],
-  ["output", "모델 출력", "--series-2"],
-  ["tool_result", "tool result", "--series-3"],
-  ["discarded", "버려진 컨텍스트", "--series-4"],
+  ["opening", "첫 턴 기본 문맥", "--series-1"],
+  ["output", "모델 답변", "--series-2"],
+  ["tool_result", "도구 실행 결과", "--series-3"],
+  ["discarded", "중간 요약 제외분", "--series-4"],
 ];
 
 function buildRuns() {
@@ -248,9 +302,6 @@ function buildRuns() {
       invalidReason: s.invalid_reason || "",
       rows,
       turns,
-      /* Published by benchmark/reports/collect.py rather than re-summed here.
-         These two are all the overview needs from the turn log, so the screen
-         does not depend on the largest file growing week after week. */
       processed: num(s.processed_tokens),
       tax: num(s.context_tax_tokens),
       totalOutput: sum("output_tokens"),
@@ -284,31 +335,79 @@ function buildRuns() {
 const mean = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
 const avgOf = (runs, field) => mean(runs.map((r) => r[field]));
 
-/* Batch labels are not all plain dates - the pilot is "pilot-2026-09-05" - and
-   any such label sorts after every YYYY-MM-DD batch, which would put the oldest
-   batch at the right-hand end of the trend line. Order by the date inside. */
 function batchTime(label) {
   const match = /\d{4}-\d{2}-\d{2}/.exec(label);
   return match ? match[0] : label;
 }
 const byBatch = (a, b) => batchTime(a).localeCompare(batchTime(b)) || a.localeCompare(b);
 
-/* The published arm order (benchmark/config.json). A condition not on this
-   list - some future optimizer - just sorts after the ones that are. */
-const CONDITION_ORDER = ["BASE", "HEADROOM", "CAVEMAN-FULL", "BE_BRIEF", "RTK"];
+/* 화면에 늘어놓는 순서만 정한다. 목록에 없는 기법이 데이터에 생겨도 뒤에 붙어서 그대로 그려진다. */
+const CONDITION_ORDER = ["BASE", "BE_BRIEF", "CAVEMAN-FULL", "HEADROOM", "RTK"];
 function conditionRank(condition) {
   const index = CONDITION_ORDER.indexOf(condition);
   return index === -1 ? CONDITION_ORDER.length : index;
 }
+const conditionSort = (a, b) => conditionRank(a) - conditionRank(b) || a.localeCompare(b);
 
-/* comparison.csv is grouped by (run_date, prompt_id) so a BASE run on the
-   large preset never gets compared against a HEADROOM run on small. When a
-   preset filter is active, only that group's rows apply. */
+/* 전체 데이터에 등장하는 기법 목록. 과제·모델 필터와 무관하게 고정이라
+   색이 필터에 따라 바뀌지 않는다(색은 순위가 아니라 기법을 따른다). */
+function knownConditions() {
+  return [...new Set(state.summary.map((r) => r.condition).filter(Boolean))].sort(conditionSort);
+}
+const conditionStyle = (condition) => seriesStyle(Math.max(0, knownConditions().indexOf(condition)));
+
+/* 같은 BASE끼리의 흔들림 폭을 비용·토큰 모두 넘었는지. 판정은 이 함수 하나로만 한다. */
+function beatsNoise(row, noise) {
+  return noise.processed != null && noise.cost != null &&
+    Math.abs(row.processed) > noise.processed && Math.abs(row.cost) > noise.cost;
+}
+
+/* 지금 선택한 과제·모델의 판정. 결론 문구, 상태 배지, 지표 띠가 모두 이 결과를 쓴다. */
+function judge(data) {
+  if (!data.rows.length) return { kind: "none", label: "비교 불가", clears: [] };
+  const clears = data.rows.filter((r) => beatsNoise(r, data.noise));
+  return clears.length
+    ? { kind: "clear", label: "차이 관측", clears }
+    : { kind: "unclear", label: "효과 미확인", clears };
+}
+
+/* 평균에 넣을 수 있는 실행. 하나도 없으면 참고용으로 제외된 실행을 돌려준다. */
+function plottableRuns(data) {
+  const valid = data.runs.filter((r) => r.measurable && r.costKnown);
+  return valid.length
+    ? { runs: valid, fallback: false }
+    : { runs: data.runs.filter((r) => r.costKnown), fallback: true };
+}
+
+/* 과제·모델 선택이 바뀌면 다시 그리도록 차트 캐시 키에 넣는다. */
+const cohortKey = () => `${state.promptId || ""}/${state.modelId || ""}`;
+
+/* 그래프 아래 기법 이름 버튼. 마우스를 올리거나 Tab으로 이동하면 그 기법만 강조한다. */
+function drawFocusKeys(keysId, svgId, conditions, swatch) {
+  const keys = document.getElementById(keysId);
+  if (!keys) return;
+  keys.replaceChildren();
+  conditions.forEach((condition) => {
+    const key = document.createElement("button");
+    key.type = "button";
+    key.className = "trend-key";
+    key.dataset.cond = condition;
+    key.title = "마우스를 올리면 이 기법만 강조합니다";
+    key.innerHTML = `${swatch(condition)}${condition}`;
+    const on = () => focusChart(svgId, keysId, condition);
+    const off = () => focusChart(svgId, keysId, "");
+    key.addEventListener("mouseenter", on);
+    key.addEventListener("mouseleave", off);
+    key.addEventListener("focus", on);
+    key.addEventListener("blur", off);
+    keys.appendChild(key);
+  });
+}
+
 function comparisonRows() {
   const rows = state.comparison.filter((r) =>
     (!state.promptId || r.prompt_id === state.promptId) &&
     (!state.modelId || r.model === state.modelId));
-  // 서로 다른 모델·과제의 평균 delta와 noise floor를 섞지 않는다.
   const cohorts = new Set(rows.map((r) => `${r.model}/${r.prompt_id}`));
   return cohorts.size > 1 ? [] : rows;
 }
@@ -328,9 +427,6 @@ function buildBatches(runs) {
       date,
       runs: all,
       base: all.filter((r) => r.condition === "BASE"),
-      /* Read off data/comparison.csv rather than recomputed here. The formula
-         lives in benchmark/reports/comparison.py; a second copy in the page
-         would be a second chance to disagree with what was published. */
       noise: {
         processed: row && row.noise_processed_pct !== "" ? num(row.noise_processed_pct) : null,
         cost: row && row.noise_cost_pct !== "" ? num(row.noise_cost_pct) : null,
@@ -340,9 +436,6 @@ function buildBatches(runs) {
   return batches;
 }
 
-/* Average the published per-batch differences. Each batch was already compared
-   against its own baseline, so this is a mean of results - not a second
-   implementation of the comparison. */
 function buildComparison() {
   const rowsSource = comparisonRows();
   const perCondition = new Map();
@@ -376,19 +469,37 @@ function corpus() {
 }
 
 function drawArchive(data) {
-  document.getElementById("archive-count").textContent = `${data.runs.length}건`;
+  const countEl = document.getElementById("archive-count");
+  if (countEl) countEl.textContent = `(${commas(data.runs.length)}건)`;
   const table = document.getElementById("archive-table");
+  if (!table) return;
   table.replaceChildren();
   const head = table.insertRow();
-  ["실행 날짜", "실행 ID", "프롬프트", "모델", "조건", "종료 상태", "평균 포함", "비용 (USD)", "turn", "기존 진단", "평가 체계"]
-    .forEach((label) => { const th = document.createElement("th"); th.textContent = label; head.appendChild(th); });
+  addHeader(head, "날짜", { align: "left" });
+  addHeader(head, "기법", { align: "left" });
+  addHeader(head, "비용");
+  addHeader(head, "턴 수");
+  addHeader(head, "상태", { align: "left" });
+  addHeader(head, "실행 ID", { extra: true, align: "left" });
+  addHeader(head, "과제", { extra: true, align: "left" });
+  addHeader(head, "모델", { extra: true, align: "left" });
+  addHeader(head, "평균 포함", { extra: true, align: "left" });
+  addHeader(head, "진단 메모", { extra: true, align: "left" });
+  addHeader(head, "평가 방식", { extra: true, align: "left" });
+
   [...data.runs].reverse().forEach((run) => {
     const row = table.insertRow();
-    [run.run_date, run.run_id, run.promptId, run.model, run.condition, run.status,
-      run.measurable ? "포함" : `제외: ${run.invalidReason || "측정 불가"}`,
-      run.costKnown ? run.cost.toFixed(4) : "—", run.turns, state.diagnostics[run.run_id]?.summary || "—",
-      run.pipeline === "legacy" ? "과거 점수 평가" : "구독·공개 테스트"]
-      .forEach((value) => { row.insertCell().textContent = value; });
+    addCell(row, run.run_date || "—", { align: "left" });
+    addCell(row, run.condition || "—", { align: "left" });
+    addCell(row, run.costKnown ? usd(run.cost) : "—");
+    addCell(row, commas(run.turns));
+    addCell(row, friendlyStatus(run.status), { align: "left" });
+    addCell(row, run.run_id || "—", { extra: true, align: "left", className: "mono-cell" });
+    addCell(row, run.promptId || "—", { extra: true, align: "left" });
+    addCell(row, run.model || "—", { extra: true, align: "left" });
+    addCell(row, run.measurable ? "포함" : `제외 (${friendlyInvalid(run.invalidReason)})`, { extra: true, align: "left" });
+    addCell(row, state.diagnostics[run.run_id]?.summary || "—", { extra: true, align: "left", className: "diag-cell" });
+    addCell(row, run.pipeline === "legacy" ? "과거 점수 평가" : "공개 테스트", { extra: true, align: "left" });
   });
 }
 
@@ -397,47 +508,43 @@ function drawArchive(data) {
 function drawVerdict(data) {
   const verdict = document.getElementById("verdict");
   const note = document.getElementById("verdict-note");
+  if (!verdict || !note) return;
   const { rows, noise } = data;
   if (!rows.length) {
     const cohorts = new Set(data.runs.map((r) => `${r.model}/${r.promptId}`));
-    verdict.textContent = cohorts.size > 1 ? "비교할 프롬프트·모델을 선택하세요" : "비교할 조건이 아직 없습니다";
-    note.textContent = cohorts.size > 1
-      ? "전체 실험은 아래 기록에 표시합니다. 비교는 같은 모델·프롬프트 안에서만 계산합니다."
-      : "같은 모델·프롬프트에 BASE와 비교 조건이 필요합니다.";
+    if (cohorts.size > 1) {
+      verdict.textContent = "상단에서 비교할 과제와 모델을 하나씩 선택해 주세요";
+      note.textContent = "서로 다른 과제나 모델의 실행 결과는 조건이 달라 하나로 합쳐 평균을 내지 않습니다. 같은 과제와 모델을 고르면 비교 결과가 표시됩니다.";
+    } else {
+      verdict.textContent = "이 과제는 기법끼리 비교할 수 있는 데이터가 없습니다";
+      note.textContent = `${emptyReason(data)} 아래 그래프에는 참고용으로 원본 비용만 흐리게 표시합니다.`;
+    }
     return;
   }
-  const clears = rows.filter((r) =>
-    noise.processed != null && noise.cost != null &&
-    Math.abs(r.processed) > noise.processed && Math.abs(r.cost) > noise.cost);
-  const best = rows[0];
+  const { clears } = judge(data);
   if (!clears.length) {
-    verdict.textContent = "아직 noise floor를 넘은 조건이 없습니다";
-    note.innerHTML = `가장 크게 줄인 것은 <strong>${best.condition}</strong>
-      (처리 토큰 ${pct(best.processed)})이지만, 조건이 똑같은 BASE 실행끼리도
-      ${noise.processed != null ? noise.processed.toFixed(1) + "%" : "—"} 벌어졌습니다.
-      이 폭을 넘지 못한 차이는 조건의 효과라고 말할 수 없습니다.`;
+    verdict.textContent = "어떤 절약법도 확실한 효과가 확인되지 않았습니다";
+    note.innerHTML = `일부 기법은 비용이 낮게 나왔지만, 아무 설정도 하지 않은 <strong>BASE</strong>끼리도 그만큼 결과가 흔들렸습니다.
+      아래 그래프에서 다른 기법의 점들이 <strong>BASE</strong>의 흔들림 범위 안에서 겹치는 것을 볼 수 있습니다.`;
     return;
   }
-  const names = clears.map((r) => `${r.condition} (처리 토큰 ${pct(r.processed)}, 비용 ${pct(r.cost)})`);
-  verdict.textContent = clears.length === 1 ? clears[0].condition : `${clears.length}개 조건`;
-  /* Clearing the noise floor once is a reason to keep measuring, not a result.
-     Say how thin the evidence is in the same breath as the claim. */
+  const names = clears.map((r) => `${r.condition} (비용 ${pct(r.cost)}, 토큰 사용량 ${pct(r.processed)})`);
+  verdict.textContent = clears.length === 1
+    ? `${clears[0].condition}에서 흔들림 폭을 넘는 차이가 관측되었습니다`
+    : `${clears.length}개 기법에서 흔들림 폭을 넘는 차이가 관측되었습니다`;
   const thin = clears.filter((r) => r.batches < 2);
-  note.innerHTML = `실행 간 자연 변동(처리 토큰 ${noise.processed.toFixed(1)}%, 비용
-    ${noise.cost.toFixed(1)}%)을 넘어선 조건입니다 — ${names.join(", ")}.
-    나머지 조건의 차이는 변동 폭 안에 있습니다.${thin.length
-      ? ` 다만 ${thin.map((r) => `${r.condition}은 ${r.batches}회차 ${r.runs}건`).join(", ")}
-        관측이라, 아직 방향을 확인한 것이지 크기를 잰 것은 아닙니다.` : ""}`;
+  note.innerHTML = `같은 <strong>BASE</strong> 실행끼리의 흔들림 폭(비용 ±${noise.cost.toFixed(1)}%, 토큰 사용량 ±${noise.processed.toFixed(1)}%)을 넘어선 기법은 ${names.join(", ")}입니다. 나머지 기법은 흔들림 폭 안에 머물렀습니다.${thin.length
+    ? ` 다만 ${thin.map((r) => `${r.condition}은 ${r.batches}회차(${r.runs}건)`).join(", ")} 기록뿐이라 반복 확인이 더 필요합니다.` : ""}`;
 }
 
-/* 스코프 자리의 내용. 실행 상세처럼 고를 게 있는 탭은 컨트롤이 들어가고,
-   고를 게 없는 탭은 "지금 무엇을 보고 있는지"를 같은 자리에 적는다. */
 function drawScope(data) {
-  const conditions = new Set(data.runs.map((r) => r.condition));
+  const conditions = new Set(data.runs.map((r) => r.condition).filter(Boolean));
+  const last = data.batches.length ? batchTime(data.batches[data.batches.length - 1].date) : null;
   const chips = [
-    `회차 <b>${data.batches.length}</b>`,
-    `실행 <b>${data.runs.length}</b>`,
-    `조건 <b>${conditions.size}</b>`,
+    `비교 기법 <b>${fmt(conditions.size)}종</b>`,
+    `실행 <b>${fmt(data.runs.length)}건</b>`,
+    `회차 <b>${fmt(data.batches.length)}회</b>`,
+    ...(last ? [`마지막 측정 ${last}`] : []),
   ].map((text) => `<span class="chip">${text}</span>`).join("");
   ["scope-overview", "scope-verify"].forEach((id) => {
     const box = document.getElementById(id);
@@ -445,17 +552,137 @@ function drawScope(data) {
   });
 }
 
+/* 지금 선택한 과제·모델에서 평균에 넣을 수 없는 이유를 사람이 읽는 문장으로. */
+function emptyReason(data) {
+  const excluded = data.runs.filter((r) => !r.measurable);
+  const reasons = [...new Set(excluded.map((r) => friendlyInvalid(r.invalidReason)))];
+  const missing = knownConditions().filter((c) => !data.runs.some((r) => r.condition === c));
+  const parts = [];
+  if (!data.runs.length) parts.push("이 과제·모델 조합에는 실행 기록이 없습니다.");
+  else if (excluded.length === data.runs.length) {
+    parts.push(`이 과제의 실행 ${data.runs.length}건은 모두 평균에서 제외됐습니다(${reasons.join(", ")}).`);
+  } else {
+    parts.push("같은 회차에 BASE와 비교 기법이 함께 있는 유효한 실행이 없습니다.");
+  }
+  if (missing.length && data.runs.length) parts.push(`${missing.join(", ")}은(는) 이 과제의 실행 기록이 없습니다.`);
+  return parts.join(" ");
+}
+
+/* 개요 맨 위 지표 띠: 판정, 규모, 비용을 한눈에. */
+function drawKpiStrip(data) {
+  const box = document.getElementById("kpi-strip");
+  if (!box) return;
+  const conditions = new Set(data.runs.map((r) => r.condition));
+  const total = data.runs.reduce((a, r) => a + (r.cost || 0), 0);
+  const verdict = judge(data);
+  const verdictSub = {
+    none: "유효한 BASE 비교 없음",
+    unclear: "모든 기법이 흔들림 폭 안",
+    clear: `${verdict.clears.map((r) => r.condition).join(", ")}이(가) 흔들림 폭 밖`,
+  }[verdict.kind];
+  const tiles = [
+    ["판정", verdict.label, verdictSub, verdict.kind === "none" ? "muted-tile" : "neutral"],
+    ["비교 기법", `${conditions.size}종`, conditions.has("BASE") ? "BASE 포함" : "BASE 없음", ""],
+    ["실험 규모", `${data.runs.length}건`, `${data.batches.length}회차`, ""],
+    ["기록된 비용 합계", `$${total.toFixed(2)}`, "모든 실행의 API 환산 비용", ""],
+  ];
+  const pill = document.getElementById("status-pill");
+  if (pill) {
+    pill.textContent = verdict.label;
+    pill.classList.toggle("is-muted", verdict.kind === "none");
+  }
+  box.innerHTML = tiles.map(([label, value, sub, tone]) =>
+    `<div class="kpi-tile ${tone}"><div class="kpi-label">${label}</div><div class="kpi-value">${value}</div><div class="kpi-sub">${sub}</div></div>`).join("");
+}
+
+/* 기법별 실행 비용을 점 하나 = 실행 1회로 보여 준다. BASE가 흔들린 범위(회색 띠)와
+   다른 기법의 점이 겹치는 모습이 곧 "효과를 단정할 수 없다"는 근거다. */
+function drawStrip(data) {
+  const legend = document.getElementById("strip-legend");
+  if (!legend) return;
+  const { runs, fallback } = plottableRuns(data);
+  const intro = document.getElementById("strip-intro");
+  if (intro) {
+    intro.dataset.normal ??= intro.innerHTML;
+    intro.innerHTML = fallback
+      ? "점 하나가 실행 1회입니다. 이 과제는 평균에 넣을 수 있는 실행이 없어, 제외된 실행의 비용을 참고용으로만 속이 빈 점으로 보여 줍니다."
+      : intro.dataset.normal;
+  }
+  legend.innerHTML = fallback
+    ? `<span><i class="swatch dot hollow"></i>평균에서 제외된 실행 (참고용)</span>`
+    : `<span><i class="swatch dot"></i>실행 1회</span>
+    <span><i class="swatch bar"></i>평균</span><span><i class="swatch band"></i>BASE가 흔들린 범위</span>`;
+  const known = knownConditions();
+  const conds = fallback ? known : known.filter((c) => runs.some((r) => r.condition === c));
+  const padL = 112, padR = 22, padT = 26, padB = 34, rowH = 74;
+  const width = boxWidth("strip", 640);
+  if (unchanged("strip", chartSignature(width, `${runs.length}/${fallback}/${cohortKey()}`))) return;
+  const height = padT + padB + Math.max(1, conds.length) * rowH;
+  const svg = frame("strip", width, height);
+  if (!runs.length) {
+    el("text", { x: width / 2, y: height / 2, class: "tick", "text-anchor": "middle" }, svg).textContent = "표시할 실행 기록이 없습니다";
+    return;
+  }
+
+  const rawMax = Math.max(...runs.map((r) => r.cost)) * 1.06;
+  const step = Math.max(0.5, Math.ceil(rawMax / 4 / 0.5) * 0.5);
+  const maxCost = Math.ceil(rawMax / step) * step;
+  const x = (v) => padL + (v / maxCost) * (width - padL - padR);
+  for (let t = 0; t <= maxCost + 1e-9; t += step) {
+    el("line", { x1: x(t), y1: padT - 6, x2: x(t), y2: height - padB, class: "grid-line" }, svg);
+    el("text", { x: x(t), y: height - padB + 18, class: "tick", "text-anchor": "middle" }, svg).textContent = `$${t.toFixed(1)}`;
+  }
+
+  const baseRuns = runs.filter((r) => r.condition === "BASE");
+  const n = data.noise.cost;
+  if (!fallback && baseRuns.length && n != null) {
+    const mean = baseRuns.reduce((a, r) => a + r.cost, 0) / baseRuns.length;
+    const lo = x(mean * (1 - n / 100)), hi = x(mean * (1 + n / 100));
+    const band = el("rect", { x: lo, y: padT - 6, width: hi - lo, height: height - padB - padT + 6, rx: 6,
+      fill: ink("--grid"), opacity: ".7" }, svg);
+    hoverable(band, `<b>BASE가 흔들린 범위</b><br>같은 설정으로 돌려도 비용이<br>평균의 ±${n.toFixed(1)}%만큼 달라졌습니다`);
+  }
+
+  drawFocusKeys("strip-keys", "strip", conds.filter((c) => runs.some((r) => r.condition === c)),
+    (c) => `<i class="swatch dot" style="background:${ink(conditionStyle(c).role)}"></i>`);
+  conds.forEach((cond, i) => {
+    const yc = padT + i * rowH + rowH / 2;
+    const { role } = conditionStyle(cond);
+    el("circle", { cx: 10, cy: yc, r: 5, fill: ink(role), "data-cond": cond }, svg);
+    el("text", { x: 24, y: yc + 4, class: "mark-label", "data-cond": cond }, svg).textContent = cond;
+    const mine = runs.filter((r) => r.condition === cond).sort((a, b) => String(a.run_date).localeCompare(String(b.run_date)));
+    if (!mine.length) {
+      el("text", { x: padL + 8, y: yc + 4, class: "tick" }, svg).textContent = "이 과제의 실행 기록 없음";
+      return;
+    }
+    mine.forEach((r, k) => {
+      const jitter = (((k * 37) % 11) - 5) / 5 * 20;
+      const dot = fallback
+        ? el("circle", { cx: x(r.cost), cy: yc + jitter, r: 6, fill: "none", stroke: ink(role), "stroke-width": 2, "data-cond": cond }, svg)
+        : el("circle", { cx: x(r.cost), cy: yc + jitter, r: 5, fill: ink(role), "fill-opacity": ".85",
+          stroke: ink("--surface-1"), "stroke-width": 2, "data-cond": cond }, svg);
+      hoverable(dot, `<b>${cond}</b><br>${r.run_date}<br>비용 <b>$${r.cost.toFixed(2)}</b>${fallback ? `<br>평균 제외: ${friendlyInvalid(r.invalidReason)}` : ""}`);
+    });
+    if (fallback) return;
+    const avg = mine.reduce((a, r) => a + r.cost, 0) / mine.length;
+    el("line", { x1: x(avg), y1: yc - 26, x2: x(avg), y2: yc + 26, stroke: ink("--surface-1"), "stroke-width": 7, "stroke-linecap": "round", "data-cond": cond }, svg);
+    const mark = el("line", { x1: x(avg), y1: yc - 26, x2: x(avg), y2: yc + 26, stroke: ink(role), "stroke-width": 3.5, "stroke-linecap": "round", "data-cond": cond }, svg);
+    hoverable(mark, `<b>${cond}</b> 평균<br>$${avg.toFixed(2)} · ${mine.length}건`);
+  });
+}
+
 function drawCorpusKpis(data) {
   const box = document.getElementById("corpus-kpis");
+  if (!box) return;
   box.innerHTML = "";
   const turns = data.runs.reduce((a, r) => a + r.turns, 0);
-  const conditions = new Set(data.runs.map((r) => r.condition));
+  const conditions = new Set(data.runs.map((r) => r.condition).filter(Boolean));
   const cards = [
-    ["회차", fmt(data.batches.length)],
-    ["실행", fmt(data.runs.length)],
-    ["조건", fmt(conditions.size)],
-    ["측정한 턴", fmt(turns)],
-    ["기록된 비용 합계", `$${data.runs.reduce((a, r) => a + r.cost, 0).toFixed(2)}`],
+    ["비교 기법", `${fmt(conditions.size)}종`],
+    ["전체 실행", `${fmt(data.runs.length)}건`],
+    ["측정 회차", `${fmt(data.batches.length)}회`],
+    ["누적 대화 턴", `${fmt(turns)}턴`],
+    ["기록된 비용 합계", usd(data.runs.reduce((a, r) => a + r.cost, 0))],
   ];
   cards.forEach(([label, value]) => {
     const card = document.createElement("div");
@@ -465,70 +692,74 @@ function drawCorpusKpis(data) {
   });
 }
 
-const METRICS = [["processed", "처리 토큰", "--series-1"], ["cost", "비용", "--series-5"]];
+const METRICS = [["cost", "비용", "--series-5"], ["processed", "토큰 사용량", "--series-1"]];
 
 function drawDelta(data) {
   const { rows, noise } = data;
   const legend = document.getElementById("delta-legend");
   const note = document.getElementById("delta-note");
+  if (!legend || !note) return;
   legend.innerHTML = "";
-  METRICS.forEach(([, label, role]) => {
+  legend.hidden = !rows.length;
+  METRICS.forEach(([key, label, role]) => {
     const item = document.createElement("span");
-    item.innerHTML = `<i class="swatch" style="background:${ink(role)}"></i>${label}`;
+    const band = noise[key];
+    item.innerHTML = `<i class="swatch" style="background:${ink(role)}"></i>${label}${band != null ? ` (같은 설정 흔들림 ±${band.toFixed(1)}%)` : ""}`;
     legend.appendChild(item);
   });
 
-  const padL = 96, padR = 76, padT = 26, padB = 28;
-  const rowH = 58, barH = 18, gap = 4;
   const width = boxWidth("delta", 720);
-  if (unchanged("delta", chartSignature(width, rows.length))) return;
+  const compact = width < 460;
+  const padL = compact ? 92 : 108;
+  const padR = compact ? 52 : 76;
+  const padT = 24, padB = 28;
+  const rowH = 72, barH = 24, gap = 6;
+  if (unchanged("delta", chartSignature(width, `${rows.length}:${state.promptId}:${state.modelId}`))) return;
   const height = padT + padB + Math.max(1, rows.length) * rowH;
   const svg = frame("delta", width, height);
-  if (!rows.length) { note.textContent = ""; return; }
+  if (!rows.length) {
+    el("text", { x: width / 2, y: height / 2, class: "tick", "text-anchor": "middle" }, svg).textContent =
+      "BASE와 비교할 수 있는 유효한 실행이 없어 증감률을 계산하지 않았습니다";
+    note.textContent = "";
+    return;
+  }
 
   const limit = Math.max(
     5, ...rows.flatMap((r) => [Math.abs(r.processed), Math.abs(r.cost)]),
     noise.processed || 0, noise.cost || 0) * 1.15;
-  const span = width - padL - padR;
+  const span = Math.max(80, width - padL - padR);
   const zero = padL + span / 2;
   const x = (v) => zero + (v / limit) * (span / 2);
 
-  /* Noise band first, so the bars read against it. */
-  const band = Math.max(noise.processed || 0, noise.cost || 0);
-  if (band > 0) {
-    el("rect", { x: x(-band), y: padT - 8, width: x(band) - x(-band),
-      height: height - padT - padB + 12, fill: ink("--grid"), opacity: ".55" }, svg);
-    const t = el("text", { x: zero, y: padT - 12, class: "tick", "text-anchor": "middle" }, svg);
-    t.textContent = `noise floor ±${band.toFixed(1)}%`;
-  }
   el("line", { x1: zero, y1: padT - 8, x2: zero, y2: height - padB + 4, class: "axis-line" }, svg);
 
   rows.forEach((row, i) => {
     const top = padT + i * rowH;
-    const label = el("text", { x: padL - 12, y: top + rowH / 2 - 2, class: "mark-label", "text-anchor": "end" }, svg);
+    const label = el("text", { x: padL - 8, y: top + rowH / 2 - 2, class: "mark-label", "text-anchor": "end" }, svg);
     label.textContent = row.condition;
-    const sub = el("text", { x: padL - 12, y: top + rowH / 2 + 13, class: "tick", "text-anchor": "end" }, svg);
-    sub.textContent = `${row.runs}건 · ${row.batches}회차`;
+    const sub = el("text", { x: padL - 8, y: top + rowH / 2 + 13, class: "tick", "text-anchor": "end" }, svg);
+    sub.textContent = `${fmt(row.runs)}건 · ${fmt(row.batches)}회`;
 
     METRICS.forEach(([key, name, role], m) => {
       const value = row[key];
       const y = top + 8 + m * (barH + gap);
       const w = Math.abs(x(value) - zero);
       const saving = value < 0;
+      const band = noise[key];
+      if (band != null && band > 0) {
+        el("rect", { x: x(-band), y: y - 2, width: x(band) - x(-band), height: barH + 4,
+          rx: 3, fill: ink("--grid"), opacity: ".72" }, svg);
+      }
       const path = el("path", {
         d: saving ? barLeft(zero, y, w, barH, 4) : barRight(zero, y, w, barH, 4),
         fill: ink(role), opacity: saving ? "1" : ".55",
       }, svg);
       hoverable(path, `<b>${row.condition} · ${name}</b><br>BASE 대비 <b>${pct(value)}</b><br>
-        실행 ${row.runs}건 · 회차 ${row.batches}개`);
-      /* A long bar reaches the label gutter, so the value goes inside it there.
-         Short bars have no room for text, so those keep it outside. */
+        실행 ${fmt(row.runs)}건 · 회차 ${fmt(row.batches)}개`);
       const inside = w > 46;
       const t = el("text", {
-        x: saving ? (inside ? zero - w + 7 : zero - w - 8) : (inside ? zero + w - 7 : zero + w + 8),
+        x: saving ? (inside ? zero - w + 6 : zero - w - 6) : (inside ? zero + w - 6 : zero + w + 6),
         y: y + barH - 5,
-        /* A presentation attribute loses to the .mark-label rule, so the
-           on-bar colour has to come from a class of its own. */
         class: inside ? "mark-label on-mark" : "mark-label",
         "text-anchor": saving === inside ? "start" : "end",
       }, svg);
@@ -537,125 +768,117 @@ function drawDelta(data) {
   });
 
   const left = el("text", { x: padL, y: height - 8, class: "tick" }, svg);
-  left.textContent = "← 절감";
+  left.textContent = "← BASE보다 절감";
   const right = el("text", { x: width - padR, y: height - 8, class: "tick", "text-anchor": "end" }, svg);
-  right.textContent = "증가 →";
-  note.textContent = "막대가 회색 띠 안에 있으면 BASE 실행끼리의 변동과 구별되지 않습니다.";
+  right.textContent = "BASE보다 증가 →";
+  note.textContent = "막대 위에 마우스를 올리거나 터치하면 정확한 수치와 실행 건수를 볼 수 있습니다.";
 }
 
-/* 개요의 요약 표. 결과 검증 탭의 전체 표와 달리 "이 차이를 효과로 읽어도
-   되는가"만 답한다. 판단 기준(noise floor)은 해석 가이드 카드에 있다. */
 function drawOverviewTable(data) {
   const table = document.getElementById("condition-table");
+  if (!table) return;
   table.innerHTML = "";
   const head = table.insertRow();
-  ["조건", "비교 대상", "사례 수", "평균 차이 (처리 토큰)", "평균 차이 (비용)", "해석"]
-    .forEach((label) => { const th = document.createElement("th"); th.textContent = label; head.appendChild(th); });
+  addHeader(head, "기법", { align: "left" });
+  addHeader(head, "비용 차이");
+  addHeader(head, "토큰 차이");
+  addHeader(head, "판정", { align: "left" });
+  addHeader(head, "비교 건수", { extra: true, align: "left" });
+  addHeader(head, "상세", { extra: true, align: "left" });
 
   data.rows.forEach((delta) => {
-    const beats = data.noise.processed != null && data.noise.cost != null &&
-      Math.abs(delta.processed) > data.noise.processed && Math.abs(delta.cost) > data.noise.cost;
+    const beats = beatsNoise(delta, data.noise);
     const row = table.insertRow();
-    const cells = [
-      delta.condition,
-      "BASE",
-      `${delta.runs}건 · ${delta.batches}회차`,
-      pct(delta.processed),
-      pct(delta.cost),
-      beats ? "자연 변동 범위를 넘어선 절감" : "변동 폭 안에 있음",
-    ];
-    cells.forEach((value, i) => {
-      const cell = row.insertCell();
-      cell.textContent = value;
-      if (i === 3) cell.className = delta.processed < 0 ? "good" : "bad";
-      if (i === 4) cell.className = delta.cost < 0 ? "good" : "bad";
-    });
+    addCell(row, delta.condition, { align: "left" });
+    addCell(row, pct(delta.cost), { className: delta.cost < 0 ? "good" : "bad" });
+    addCell(row, pct(delta.processed), { className: delta.processed < 0 ? "good" : "bad" });
+    addCell(row, beats ? "흔들림 폭 초과" : "흔들림 폭 안", { align: "left" });
+    addCell(row, `${fmt(delta.runs)}건 (${fmt(delta.batches)}회차)`, { extra: true, align: "left" });
+    const go = addCell(row, "", { extra: true, align: "left" });
+    const link = document.createElement("button");
+    link.type = "button"; link.className = "link-button";
+    link.textContent = "실행 상세 보기";
+    link.addEventListener("click", () => openRun(delta.condition));
+    go.appendChild(link);
   });
 }
 
-/* 결과를 읽는 기준을 결론 옆에 둔다. 숫자는 comparison.csv의 noise floor를
-   그대로 쓰고, 문장은 verdict와 같은 판단을 반복한다. */
-function drawGuide(data) {
-  const box = document.getElementById("guide");
-  const { noise } = data;
-  const show = (v) => (v == null ? "—" : `±${v.toFixed(1)}%`);
-  box.innerHTML = `
-    <div class="panel">
-      <h3 class="tight">실행 간 자연 변동 범위 (noise floor)</h3>
-      <div class="panel-row">
-        <div class="panel-figures">
-          <div><span class="label">처리 토큰</span><b class="figure series-1">${show(noise.processed)}</b></div>
-          <div><span class="label">비용</span><b class="figure series-5">${show(noise.cost)}</b></div>
-        </div>
-        <p class="muted">각 조건의 결과를 이 변동 범위와 비교해 해석합니다.
-        막대가 회색 영역을 벗어나면 자연 변동을 넘어선 차이로 판단할 수 있습니다.</p>
-      </div>
-    </div>
-    <div class="callout">
-      <h3 class="tight">핵심 해석</h3>
-      <p id="guide-verdict"></p>
-    </div>`;
-  document.getElementById("guide-verdict").innerHTML =
-    document.getElementById("verdict-note").innerHTML;
+function openRun(condition) {
+  const entries = runsGroupedByCondition().get(condition);
+  if (!entries || !entries.length) return;
+  state.condition = condition;
+  state.runId = entries[entries.length - 1].id;
+  showView("run");
+  render();
+  window.scrollTo(0, 0);
 }
 
 function drawConditionTable(data) {
   const table = document.getElementById("condition-table-verify");
+  if (!table) return;
   table.innerHTML = "";
   const head = table.insertRow();
-  ["조건", "실행", "평균 처리 토큰", "평균 비용", "평균 context tax", "vs BASE 처리", "vs BASE 비용", "noise 초과", "평균 품질"]
-    .forEach((label) => { const th = document.createElement("th"); th.textContent = label; head.appendChild(th); });
+  addHeader(head, "기법", { align: "left" });
+  addHeader(head, "유효 실행");
+  addHeader(head, "평균 비용");
+  addHeader(head, "BASE 대비 비용");
+  addHeader(head, "흔들림 초과", { align: "left" });
+  addHeader(head, "평균 총 사용 토큰", { extra: true });
+  addHeader(head, "BASE 대비 토큰", { extra: true });
+  addHeader(head, "평균 반복 청구 토큰", { extra: true });
+  addHeader(head, "테스트 점수", { extra: true });
 
   if (new Set(data.runs.map((r) => `${r.model}/${r.promptId}`)).size > 1) {
     const row = table.insertRow();
-    const cell = row.insertCell(); cell.colSpan = 9;
-    cell.textContent = "모델·프롬프트 하나를 선택하면 같은 평가 체계 안에서 평균을 표시합니다.";
+    const td = row.insertCell();
+    td.colSpan = 9;
+    td.style.textAlign = "left";
+    td.textContent = "상단에서 과제와 모델을 하나씩 선택하면 같은 조건 안에서 평균을 계산해 보여줍니다.";
     return;
   }
 
-  /* Averaged over measurable runs only - the same set comparison.csv's "vs
-     BASE"/"noise" columns already use. An invalid run has no reliable
-     quality (never graded) or tax (compaction overstates it), so folding it
-     in silently drags the average toward whatever num() defaults it to. */
   const byCondition = new Map();
   data.runs.filter((r) => r.measurable).forEach((r) => {
     if (!byCondition.has(r.condition)) byCondition.set(r.condition, []);
     byCondition.get(r.condition).push(r);
   });
+  if (!byCondition.size) {
+    const td = table.insertRow().insertCell();
+    td.colSpan = 9;
+    td.style.textAlign = "left";
+    td.textContent = emptyReason(data);
+    return;
+  }
   const deltaOf = (condition) => data.rows.find((r) => r.condition === condition);
-  const order = ["BASE", ...data.rows.map((r) => r.condition)];
+  const order = [...byCondition.keys()].sort(conditionSort);
 
   order.forEach((condition) => {
     const runs = byCondition.get(condition);
-    if (!runs) return;
     const delta = deltaOf(condition);
     const row = table.insertRow();
-    const beats = delta && data.noise.processed != null && data.noise.cost != null &&
-      Math.abs(delta.processed) > data.noise.processed && Math.abs(delta.cost) > data.noise.cost;
-    const cells = [
-      condition,
-      fmt(runs.length),
-      fmt(avgOf(runs, "processed")),
-      `$${avgOf(runs, "cost").toFixed(2)}`,
-      fmt(avgOf(runs, "tax")),
-      delta ? pct(delta.processed) : "기준",
-      delta ? pct(delta.cost) : "기준",
-      delta ? (beats ? "예" : "아니오") : "—",
-      avgOf(runs, "quality").toFixed(1),
-    ];
-    cells.forEach((value, i) => {
-      const cell = row.insertCell();
-      cell.textContent = value;
-      if (i >= 5 && i <= 6 && delta) cell.className = delta[i === 5 ? "processed" : "cost"] < 0 ? "good" : "bad";
-      if (i === 7 && delta) cell.className = beats ? "good" : "";
+    const beats = delta && beatsNoise(delta, data.noise);
+    addCell(row, condition, { align: "left" });
+    addCell(row, `${fmt(runs.length)}건`);
+    addCell(row, usd(avgOf(runs, "cost")));
+    addCell(row, delta ? pct(delta.cost) : "기준", {
+      className: delta ? (delta.cost < 0 ? "good" : "bad") : "",
     });
+    addCell(row, delta ? (beats ? "예" : "아니오") : "—", {
+      align: "left",
+      className: delta && beats ? "good" : "",
+    });
+    addCell(row, fmt(avgOf(runs, "processed")), { extra: true });
+    addCell(row, delta ? pct(delta.processed) : "기준", {
+      extra: true,
+      className: delta ? (delta.processed < 0 ? "good" : "bad") : "",
+    });
+    addCell(row, fmt(avgOf(runs, "tax")), { extra: true });
+    addCell(row, avgOf(runs, "quality").toFixed(1), { extra: true });
   });
 }
 
 /* ---------- run report ---------- */
 
-/* Tool results grouped by what the turn was doing, so a saving can be named:
-   "read less" and "run fewer commands" are different findings. */
 function resultByRole(rows) {
   const totals = { read: 0, write: 0, run: 0, other: 0 };
   rows.forEach((row) => {
@@ -665,30 +888,26 @@ function resultByRole(rows) {
   return totals;
 }
 
-const ROLE_NAME = { read: "파일 읽기", write: "파일 쓰기", run: "명령 실행", other: "기타 도구" };
+const ROLE_NAME = { read: "파일 읽기", write: "파일 쓰기", run: "명령어 실행", other: "기타 도구" };
 
 function componentNote(key, run, base) {
   const d = run[key] - base[key];
   const openingPerTurn = (r) => (r.turns > 1 ? r.opening / (r.turns - 1) : r.firstContext);
   if (key === "opening") {
     const same = Math.abs(openingPerTurn(run) - openingPerTurn(base)) < openingPerTurn(base) * 0.05;
-    return `과제 설명과 도구 정의로 이뤄진 첫 턴 컨텍스트는 매 턴 통째로 다시 실립니다.
-      그 크기는 ${fmt(openingPerTurn(run))} 토큰으로 BASE의 ${fmt(openingPerTurn(base))} 토큰과
-      ${same ? "사실상 같습니다" : "다릅니다"}. 이 항목이 ${signed(d)} 토큰 움직인 것은
-      ${same ? "오직 " : ""}턴 수가 ${base.turns.toFixed(1)}턴에서 ${run.turns}턴으로 바뀌어
-      같은 컨텍스트를 다시 읽은 횟수가 달라졌기 때문입니다.`;
+    return `과제 설명과 도구 정의로 이루어진 첫 턴 기본 문맥은 매 턴 다시 전달됩니다.
+      1턴당 크기는 ${fmt(openingPerTurn(run))} 토큰으로 BASE(${fmt(openingPerTurn(base))} 토큰)와
+      ${same ? "거의 같습니다" : "조금 다릅니다"}. 이 항목이 ${signed(d)} 토큰 달라진 것은
+      대화 횟수가 ${base.turns.toFixed(1)}턴에서 ${fmt(run.turns)}턴으로 바뀌어 다시 읽은 횟수가 달라졌기 때문입니다.`;
   }
   if (key === "output") {
     const perTurn = run.totalOutput / Math.max(1, run.turns);
     const basePerTurn = base.totalOutput / Math.max(1, base.turns);
     const thinkShare = run.totalOutput ? (run.thinking / run.totalOutput) * 100 : 0;
     const baseThink = base.totalOutput ? (base.thinking / base.totalOutput) * 100 : 0;
-    return `모델이 쓴 글의 총량이 BASE 평균 ${fmt(base.totalOutput)} 토큰에서
-      ${fmt(run.totalOutput)} 토큰으로 바뀌었습니다. 턴당으로는 ${fmt(basePerTurn)} →
-      ${fmt(perTurn)} 토큰입니다. 그중 추론(thinking)이 ${thinkShare.toFixed(1)}%로
-      BASE의 ${baseThink.toFixed(1)}%와 견줍니다 — 짧게 쓰라는 지시는 글을 줄이지
-      추론을 줄이지는 않습니다. 한 턴의 출력은 대화에 남아 이후 모든 턴에 다시 실리므로,
-      재청구 기준으로는 ${signed(d)} 토큰이 됩니다.`;
+    return `모델 답변 총량이 BASE 평균 ${fmt(base.totalOutput)} 토큰에서 ${fmt(run.totalOutput)} 토큰으로 바뀌었습니다
+      (턴당 ${fmt(basePerTurn)} → ${fmt(perTurn)} 토큰). 내부 추론 비중은 ${thinkShare.toFixed(1)}%입니다(BASE ${baseThink.toFixed(1)}%).
+      한 번 작성한 답변은 대화 기록에 남아 이후 턴마다 다시 읽히므로, 누적 기준으로는 ${signed(d)} 토큰 차이가 났습니다.`;
   }
   if (key === "tool_result") {
     const mine = resultByRole(run.rows);
@@ -699,19 +918,17 @@ function componentNote(key, run, base) {
       .sort((a, b) => Math.abs(b.d) - Math.abs(a.d));
     const where = moved.length
       ? moved.map((x) => `${ROLE_NAME[x.kind]} ${signed(x.d)}`).join(", ")
-      : "역할별로 나눌 만한 차이가 없습니다";
+      : "활동별로 나눌 만한 큰 차이가 없습니다";
     const head = moved[0];
-    return `도구가 돌려준 내용의 총량이 BASE 평균 ${fmt(base.totalResult)} 토큰에서
-      ${fmt(run.totalResult)} 토큰으로 바뀌었습니다. 어느 역할에서 갈렸는지 보면 ${where}
-      입니다.${head ? ` 즉 이 실행은 <strong>${ROLE_NAME[head.kind]}</strong>에서
-      ${head.d < 0 ? "덜 가져왔습니다" : "더 가져왔습니다"}.` : ""}
-      재청구 기준으로는 ${signed(d)} 토큰입니다.`;
+    return `도구가 돌려준 결과 총량이 BASE 평균 ${fmt(base.totalResult)} 토큰에서
+      ${fmt(run.totalResult)} 토큰으로 바뀌었습니다(${where}).${head ? ` 주로 <strong>${ROLE_NAME[head.kind]}</strong> 단계에서
+      내용을 ${head.d < 0 ? "덜 읽어 들였습니다" : "더 많이 읽어 들였습니다"}.` : ""}
+      이후 턴마다 다시 읽힌 누적 차이는 ${signed(d)} 토큰입니다.`;
   }
-  return `컨텍스트가 도중에 줄어(compaction) ${signed(d)} 토큰이 분해에서 빠졌습니다.
-    버려진 내용은 되살릴 수 없어 이 실행의 context tax는 실제보다 부풀려져 있습니다.`;
+  return `대화 도중 문맥 요약(compaction)이 일어나 ${signed(d)} 토큰이 정리되었습니다.
+    중간에 줄어든 내용이 있으면 반복 청구 토큰(context tax)이 실제보다 크게 잡힐 수 있어 해석에 주의해야 합니다.`;
 }
 
-/* The batch's baseline, averaged - the yardstick every run figure is read against. */
 function baselineFor(run, data) {
   const batch = data.batches.find((b) => b.date === run.run_date);
   const peers = batch ? batch.base.filter((r) => r.key !== run.key) : [];
@@ -734,17 +951,20 @@ function baselineFor(run, data) {
 
 function missingBaseline(run) {
   return run.condition === "BASE"
-    ? `<p class="sub">이 실행은 <strong>${run.run_date}</strong> 회차의 기준선이고, 같은 회차에
-       견줄 다른 BASE 실행이 없습니다. 비교는 BASE가 2회 이상인 회차에서만 만들어집니다.</p>`
-    : `<p class="sub"><strong>${run.run_date}</strong> 회차에 BASE 실행이 없어 비교할 기준이
-       없습니다.</p>`;
+    ? `<p class="verdict run-verdict">비교 기준 실행 (BASE)</p>
+       <p class="hero-note">아무 절약법도 쓰지 않은 기본 상태의 실행입니다. 위쪽에서 다른 기법(<code>BE_BRIEF</code> 등)을 선택하면 같은 날 실행한 <code>BASE</code> 평균과 얼마나 차이가 났는지 바로 비교해 보여줍니다.</p>`
+    : `<p class="verdict run-verdict">비교 기준 없음</p>
+       <p class="hero-note"><strong>${run.run_date}</strong> 회차에는 비교 기준이 될 <code>BASE</code> 실행 기록이 없습니다. 아래에서 이 실행 자체의 요약 수치와 턴별 흐름을 확인할 수 있습니다.</p>`;
 }
 
 function drawRunDelta(data) {
   const box = document.getElementById("delta-run");
+  if (!box) return;
   const run = data.runs.find((r) => r.key === state.runId);
-  if (!run) { box.innerHTML = `<p class="empty">실행을 선택하세요.</p>`; return; }
+  if (!run) { box.innerHTML = `<p class="empty">위쪽에서 살펴볼 실행을 선택해 주세요.</p>`; return; }
   const { batch, base } = baselineFor(run, data);
+  const runNote = document.getElementById("delta-run-note");
+  if (runNote) runNote.hidden = !base;
   if (!base) { box.innerHTML = missingBaseline(run); return; }
 
   const total = run.observed - base.observed;
@@ -755,46 +975,46 @@ function drawRunDelta(data) {
   const processedPct = base.processed ? ((run.processed - base.processed) / base.processed) * 100 : 0;
   const inNoise = noise != null && Math.abs(processedPct) <= noise;
 
-  const width = 660, rowH = 34, padL = 108, padR = 92, padT = 6;
+  const hostWidth = box.clientWidth || 600;
+  const width = Math.max(280, hostWidth);
+  const compact = width < 460;
+  const rowH = 34, padL = compact ? 104 : 124, padR = compact ? 62 : 92, padT = 6;
   const limit = Math.max(1, ...parts.map((p) => Math.abs(p.d)));
-  const span = width - padL - padR, zero = padL + span / 2;
+  const span = Math.max(80, width - padL - padR), zero = padL + span / 2;
   const bars = parts.map((p, i) => {
     const y = padT + i * rowH + 7;
     const w = (Math.abs(p.d) / limit) * (span / 2);
     const saving = p.d < 0;
     const d = saving ? barLeft(zero, y, w, 18, 4) : barRight(zero, y, w, 18, 4);
-    /* The longest bar reaches the label gutter, so its value goes inside. */
-    const inside = w > 62;
-    const tx = saving ? (inside ? zero - w + 7 : zero - w - 8) : (inside ? zero + w - 7 : zero + w + 8);
+    const inside = w > 58;
+    const tx = saving ? (inside ? zero - w + 6 : zero - w - 6) : (inside ? zero + w - 6 : zero + w + 6);
     return `<path d="${d}" fill="var(${saving ? "--good" : "--critical"})"></path>
-      <text x="${padL - 12}" y="${y + 13}" class="mark-label" text-anchor="end">${p.label}</text>
+      <text x="${padL - 8}" y="${y + 13}" class="mark-label" text-anchor="end">${p.label}</text>
       <text x="${tx}" y="${y + 13}" class="${inside ? "mark-label on-mark" : "mark-label"}"
         text-anchor="${saving === inside ? "start" : "end"}">${signed(p.d)}</text>`;
   }).join("");
-  const height = padT + parts.length * rowH + 8;
+  const height = padT + parts.length * rowH + 10;
+
+  const amount = `${Math.abs(processedPct).toFixed(1)}%`;
+  const howMuch = processedPct < 0 ? `${amount} 적게 썼` : `${amount} 더 썼`;
+  const summaryConclusion = noise != null
+    ? (inNoise
+      ? `같은 날 BASE보다 토큰을 ${howMuch}지만, 같은 설정끼리의 흔들림 폭 안이라 효과로 보기 어렵습니다`
+      : `같은 날 BASE보다 토큰을 ${howMuch}고, 이날의 흔들림 폭을 넘었습니다`)
+    : `같은 날 BASE보다 토큰을 ${howMuch}습니다`;
 
   box.innerHTML = `
-    <p class="verdict ${total < 0 ? "good" : "bad"}">${pct(processedPct)}</p>
-    <p class="hero-note">다시 청구된 컨텍스트가 <strong>${fmt(run.observed)}</strong> 토큰으로,
-      같은 회차 BASE 평균 ${fmt(base.observed)} 토큰보다 <strong>${signed(total)}</strong> 토큰
-      ${total < 0 ? "적습니다" : "많습니다"}. 턴 수는 ${base.turns.toFixed(1)} → ${run.turns}턴입니다.</p>
-    ${noise != null ? `<p class="${inNoise ? "muted warn" : "muted"}">이 회차 BASE 실행끼리의 변동은
-      ${noise.toFixed(1)}%입니다. ${inNoise
-        ? "위 차이는 그 안에 있어 조건의 효과로 읽을 수 없습니다."
-        : "위 차이는 그 폭을 넘습니다."}</p>` : ""}
-    <div class="scroll-x"><svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"
-      role="img" aria-label="BASE 대비 항목별 차이">
-      <line x1="${zero}" y1="${padT}" x2="${zero}" y2="${height - 4}" class="axis-line"></line>
+    <p class="verdict run-verdict ${total < 0 ? "good" : "bad"}">${summaryConclusion}</p>
+    <p class="hero-note">다시 읽히며 청구된 문맥 합계가 <strong>${fmt(run.observed)}</strong> 토큰으로, 같은 날 <code>BASE</code> 평균(${fmt(base.observed)} 토큰)보다 <strong>${signed(total)}</strong> 토큰 ${total < 0 ? "적었습니다" : "많았습니다"}. 대화 횟수는 ${base.turns.toFixed(1)}턴에서 ${fmt(run.turns)}턴이 되었습니다.${noise != null ? ` 이날 같은 <code>BASE</code> 실행끼리의 흔들림 폭(noise floor)은 ±${noise.toFixed(1)}%였습니다.` : ""}</p>
+    <div class="chart run-delta-chart"><svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"
+      role="img" aria-label="BASE 대비 항목별 토큰 차이">
+      <line x1="${zero}" y1="${padT}" x2="${zero}" y2="${height - 6}" class="axis-line"></line>
       ${bars}
       <text x="${padL}" y="${height - 1}" class="tick">← 절감</text>
       <text x="${width - padR}" y="${height - 1}" class="tick" text-anchor="end">증가 →</text>
     </svg></div>`;
 }
 
-/* How many earlier turns in this same run already touched one of this turn's
-   targets. A large result that is also a repeat read is a different problem
-   (something reread what it - or an earlier turn - already had) than a large
-   result that is not. */
 function repeatReadCount(row, run) {
   const targets = targetsOf(row);
   if (!targets.length) return 0;
@@ -813,17 +1033,12 @@ function median(values) {
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
-/* This turn's tool result measured against the run's OWN typical turn, not a
-   global constant - "large" only means something read next to the other
-   turns actually recorded here. */
 function resultOutlierRatio(row, run) {
   const others = run.rows.map((r) => num(r.result_tokens)).filter((v) => v > 0);
   const typical = median(others);
   return typical > 0 ? num(row.result_tokens) / typical : 0;
 }
 
-/* One paragraph per turn that mattered: what the turn was doing, and why doing
-   it there costs what it costs. */
 function turnStory(row, run) {
   const role = roleOf(row);
   const tax = num(row.context_tax_tokens);
@@ -839,19 +1054,16 @@ function turnStory(row, run) {
   const repeats = repeatReadCount(row, run);
   const ratio = resultOutlierRatio(row, run);
   const why = [
-    repeats > 0 ? `이 중 일부는 이 실행에서 이미 ${repeats}번 읽힌 적이 있는 대상입니다 (반복 읽기)` : "",
-    ratio >= 2 ? `이 턴의 결과 크기는 같은 실행의 다른 턴들 중앙값보다 ${ratio.toFixed(1)}배 큽니다` : "",
+    repeats > 0 ? `앞서 이미 ${repeats}번 확인했던 대상을 다시 읽었습니다` : "",
+    ratio >= 2 ? `돌려받은 결과 크기가 다른 턴들의 중앙값보다 ${ratio.toFixed(1)}배 큽니다` : "",
   ].filter(Boolean).join(". ");
-  return `<li><b>턴 ${row.turn} — ${doing} 턴</b>${mix}
+  return `<li><b>턴 ${row.turn} — ${doing} 단계</b>${mix}
     ${what ? `<br><span class="targets">${what}</span>` : ""}
-    <br>${produced} <b>${fmt(result)} 토큰</b>만큼 컨텍스트에 들어왔고, 남은 ${remaining}턴이
-    매번 그것을 다시 읽어 <b>${fmt(tax)} 토큰</b>으로 청구됐습니다.
-    이 실행 전체 context tax의 ${share.toFixed(1)}%입니다.
+    <br>${produced} <b>${fmt(result)} 토큰</b> 들어왔고, 이후 남은 ${fmt(remaining)}턴 동안 매번 다시 읽히며
+    총 <b>${fmt(tax)} 토큰</b>이 반복 청구되었습니다(이 실행 전체 반복 청구량의 ${share.toFixed(1)}%).
     ${why ? `<br><span class="muted">${why}.</span>` : ""}</li>`;
 }
 
-/* 상위 세 턴을 한 줄씩. 왼쪽은 그 턴이 무엇을 했는지, 오른쪽은 왜 비쌌는지를
-   설명하는 세 수치(남은 턴 수, 전체 대비 비중, 중앙값 대비 크기)다. */
 function turnRow(row, run, lead) {
   const role = roleOf(row);
   const tax = num(row.context_tax_tokens);
@@ -862,48 +1074,49 @@ function turnRow(row, run, lead) {
   const what = targetPhrase(row);
   return `<div class="turn-row${lead ? " lead" : ""}">
     <div class="turn-what">
-      <b>턴 ${row.turn}</b>
-      <span>${ROLE_TEXT[role ? role.kind : "other"][0]} 턴</span>
+      <b>턴 ${row.turn} · ${ROLE_TEXT[role ? role.kind : "other"][0]} 단계</b>
       ${what ? `<span class="targets">${what}</span>` : ""}
     </div>
     <div class="turn-figure"><b>${fmt(tax)}</b> 토큰</div>
     <div class="turn-metrics">
-      <div><span class="label">남은</span>${remaining}턴</div>
-      <div><span class="label">전체의</span>${share.toFixed(1)}%</div>
-      <div><span class="label">중앙값보다</span>${ratio >= 2 ? `${ratio.toFixed(1)}배` : "—"}</div>
+      <div><span class="label">남은 턴</span>${fmt(remaining)}턴</div>
+      <div><span class="label">전체 비중</span>${share.toFixed(1)}%</div>
+      <div><span class="label">평소 대비</span>${ratio >= 2 ? `${ratio.toFixed(1)}배` : "보통"}</div>
     </div>
   </div>`;
 }
 
 function drawTopTurns(data) {
   const box = document.getElementById("top-turns");
+  if (!box) return;
   const run = data.runs.find((r) => r.key === state.runId);
-  if (!run) { box.innerHTML = `<p class="empty">실행을 선택하세요.</p>`; return; }
+  if (!run) { box.innerHTML = `<p class="empty">실행을 선택해 주세요.</p>`; return; }
   const top = [...run.rows]
     .sort((a, b) => num(b.context_tax_tokens) - num(a.context_tax_tokens))
     .slice(0, 3)
     .filter((r) => num(r.context_tax_tokens) > 0);
   if (!top.length) {
-    box.innerHTML = `<p class="sub">이 실행에는 context tax가 잡힌 턴이 없습니다.</p>`;
+    box.innerHTML = `<p class="sub">이 실행에는 반복 청구 토큰(context tax)이 기록된 턴이 없습니다.</p>`;
     return;
   }
   const head = top[0];
   const early = num(head.turn) <= Math.ceil(run.turns / 3);
-  box.innerHTML = `<p class="muted">가장 비쌌던 턴은 <strong>턴 ${head.turn}</strong>입니다.
+  box.innerHTML = `<p class="muted">가장 많은 누적 비용을 만든 단계는 <strong>턴 ${head.turn}</strong>입니다.
     ${early
-      ? "실행 앞쪽에서 일어나 남은 턴이 많았습니다 — 같은 크기라도 앞 턴에서 들어온 내용이 더 오래, 더 여러 번 다시 실립니다."
-      : "실행 뒤쪽이라 다시 실릴 턴이 적었는데도 상위에 올랐습니다 — 들여온 내용 자체가 컸다는 뜻입니다."}</p>
+      ? "실행 초반에 큰 내용이 들어오면서 이후 끝날 때까지 매 턴 반복해서 읽혔습니다."
+      : "실행 후반이라 남은 턴이 적었는데도 상위에 올랐을 만큼 한 번에 들어온 내용이 컸습니다."}</p>
     ${top.map((r, i) => turnRow(r, run, i === 0)).join("")}
     <details class="turn-detail">
-      <summary>턴별 근거 문장 보기</summary>
+      <summary>턴별 상세 설명 펼치기</summary>
       <ul class="notes">${top.map((r) => turnStory(r, run)).join("")}</ul>
     </details>`;
 }
 
 function drawReport(data) {
   const box = document.getElementById("report");
+  if (!box) return;
   const run = data.runs.find((r) => r.key === state.runId);
-  if (!run) { box.innerHTML = `<p class="empty">실행을 선택하세요.</p>`; return; }
+  if (!run) { box.innerHTML = `<p class="empty">실행을 선택해 주세요.</p>`; return; }
   const { base } = baselineFor(run, data);
   const parts = base
     ? PARTS.map(([key, label]) => ({ key, label, d: run[key] - base[key] }))
@@ -911,75 +1124,74 @@ function drawReport(data) {
         .sort((a, b) => Math.abs(b.d) - Math.abs(a.d))
         .slice(0, 3)
     : [];
-  /* 비교할 BASE가 없다는 안내는 바로 위 "BASE 대비"가 이미 하고 있다.
-     같은 문장을 한 카드 안에서 두 번 쓰지 않는다. */
   const diag = state.diagnostics[run.run_id];
-  /* "어디서 더 썼다"(정량, 위 목록)와 "왜 더 썼다"(정성 - 테스트 실패해서
-     고쳤다, 같은 파일 다시 읽었다 등)는 서로 다른 질문이다. 후자가 없으면
-     "이 실행에는 그런 사건이 없었다"고 분명히 말한다 - 조용히 생략하면
-     "아직 못 찾았다"인지 "없었다"인지 구분이 안 된다. */
-  const causeBlock = `<h4 class="tight">실제로 무슨 일이 있었나</h4>
+  const causeBlock = `<h3>실행 중 감지된 특이 사건</h3>
     ${diag
       ? `<ul class="notes">${diag.events.map((e) => `<li>${escapeHtml(e.summary)}</li>`).join("")}</ul>`
-      : `<p class="muted">테스트 실패·재수정, 같은 파일 재확인 같은 사건은 감지되지 않았습니다
-         — turn 수·토큰 차이는 정상적인 실행 편차로 보입니다.</p>`}`;
+      : `<p class="muted">테스트 실패 후 재수정이나 같은 파일 반복 읽기 같은 특이 사건은 감지되지 않았습니다. 일반적인 실행 과정의 자연스러운 편차로 보입니다.</p>`}`;
   box.innerHTML = base
-    ? `<h3>왜 이렇게 갈렸나</h3>
+    ? `<h3>BASE와 어디서 차이가 났나요?</h3>
        <ul class="notes">${parts.map((p) =>
-         `<li><b>${p.label} ${signed(p.d)} 토큰</b> — ${componentNote(p.key, run, base)}</li>`).join("")}</ul>
+         `<li><b>${p.label} (${signed(p.d)} 토큰)</b> — ${componentNote(p.key, run, base)}</li>`).join("")}</ul>
        ${causeBlock}`
-    : `<h3>왜 이렇게 갈렸나</h3>${causeBlock}`;
+    : causeBlock;
 }
 
 /* ---------- run charts ---------- */
 
 function drawTimeline(turns) {
-  const padL = 64, padR = 16, padT = 14, padB = 34;
-  /* 2단 레이아웃의 카드 폭(약 560px)에 맞춘다. 턴이 많으면 막대를 좁혀
-     가로 스크롤 없이 실행 전체 모양이 한눈에 들어오게 한다. */
   const width = boxWidth("timeline", 560);
+  const compact = width < 460;
+  const padL = compact ? 54 : 64, padR = 14, padT = 28, padB = 34;
   if (unchanged("timeline", chartSignature(width, state.runId))) return;
-  const gap = turns.length > 24 ? 2 : 6;
-  const bw = Math.max(3, (width - padL - padR) / Math.max(1, turns.length) - gap);
-  const height = 260, plot = height - padT - padB;
+  const height = 250, plot = height - padT - padB;
   const svg = frame("timeline", width, height);
   const max = Math.max(1, ...turns.map((r) => num(r.context_tax_tokens)));
+  const count = Math.max(1, turns.length);
+  const step = (width - padL - padR) / count;
+  const gap = step > 8 ? 3 : step > 3.5 ? 1 : 0.4;
+  const bw = Math.max(1, step - gap);
 
   for (let i = 0; i <= 4; i++) {
     const y = padT + (plot * i) / 4;
     el("line", { x1: padL, y1: y, x2: width - padR, y2: y, class: "grid-line" }, svg);
-    const t = el("text", { x: padL - 8, y: y + 4, class: "tick", "text-anchor": "end" }, svg);
+    const t = el("text", { x: padL - 6, y: y + 4, class: "tick", "text-anchor": "end" }, svg);
     t.textContent = fmt((max * (4 - i)) / 4);
   }
   el("line", { x1: padL, y1: padT + plot, x2: width - padR, y2: padT + plot, class: "axis-line" }, svg);
+  el("text", { x: 4, y: 11, class: "tick unit-label" }, svg).textContent = "단위: 토큰";
 
+  if (!turns.length) return;
   const peak = turns.reduce((a, b) => (num(a.context_tax_tokens) > num(b.context_tax_tokens) ? a : b), turns[0]);
-  turns.forEach((row) => {
-    const i = num(row.turn) - 1;
+  const tickEvery = count > 45 ? 10 : 5;
+
+  turns.forEach((row, idx) => {
     const v = num(row.context_tax_tokens);
     const h = (v / max) * plot;
-    const x = padL + i * (bw + gap);
+    const x = padL + idx * step;
     const isPeak = peak && row.turn === peak.turn;
     const path = el("path", {
-      d: barUp(x, padT + plot - h, bw, h, 4),
+      d: barUp(x, padT + plot - h, bw, h, 3),
       fill: isPeak ? ink("--series-2") : ink("--seq-400"),
     }, svg);
-    hoverable(path, `<b>턴 ${row.turn}</b><br>${toolSummary(row) || "툴 없음"}<br>
-      결과 <b>${fmt(num(row.result_tokens))}</b> 토큰<br>tax <b>${fmt(v)}</b> 토큰`);
+    hoverable(path, `<b>턴 ${row.turn}</b><br>${toolSummary(row) || "도구 호출 없음"}<br>
+      새로 들어온 양 <b>${fmt(num(row.result_tokens))}</b> 토큰<br>반복 청구량 <b>${fmt(v)}</b> 토큰`);
     if (isPeak && h > 0) {
-      const label = el("text", { x: x + bw / 2, y: padT + plot - h - 6, class: "mark-label", "text-anchor": "middle" }, svg);
+      const lx = Math.min(width - padR - 26, Math.max(padL + 26, x + bw / 2));
+      const label = el("text", { x: lx, y: padT + plot - h - 6, class: "mark-label", "text-anchor": "middle" }, svg);
       label.textContent = fmt(v);
     }
-    if (i % 5 === 0) {
-      const t = el("text", { x: x + bw / 2, y: height - 12, class: "tick", "text-anchor": "middle" }, svg);
+    if (idx % tickEvery === 0) {
+      const t = el("text", { x: x + bw / 2, y: height - 10, class: "tick", "text-anchor": "middle" }, svg);
       t.textContent = row.turn;
     }
   });
 }
 
 function drawGrowth(turns) {
-  const padL = 64, padR = 16, padT = 14, padB = 34;
   const width = boxWidth("growth", 560);
+  const compact = width < 460;
+  const padL = compact ? 54 : 64, padR = 14, padT = 28, padB = 34;
   if (unchanged("growth", chartSignature(width, state.runId))) return;
   const height = 220, plot = height - padT - padB;
   const svg = frame("growth", width, height);
@@ -991,9 +1203,10 @@ function drawGrowth(turns) {
   for (let i = 0; i <= 4; i++) {
     const y = padT + (plot * i) / 4;
     el("line", { x1: padL, y1: y, x2: width - padR, y2: y, class: "grid-line" }, svg);
-    const t = el("text", { x: padL - 8, y: y + 4, class: "tick", "text-anchor": "end" }, svg);
+    const t = el("text", { x: padL - 6, y: y + 4, class: "tick", "text-anchor": "end" }, svg);
     t.textContent = fmt((max * (4 - i)) / 4);
   }
+  el("text", { x: 4, y: 11, class: "tick unit-label" }, svg).textContent = "단위: 토큰";
   if (!turns.length) return;
 
   const pts = turns.map((r, i) => [px(i), py(num(r.context_tokens))]);
@@ -1006,32 +1219,30 @@ function drawGrowth(turns) {
     fill: "none", stroke: ink("--seq-400"), "stroke-width": 2, "stroke-linejoin": "round",
   }, svg);
 
+  const tickEvery = turns.length > 45 ? 10 : 5;
+  const dotR = step > 9 ? 4 : 2.5;
   turns.forEach((r, i) => {
-    const c = el("circle", { cx: px(i), cy: py(num(r.context_tokens)), r: 5, fill: ink("--seq-400"),
-      stroke: ink("--surface-1"), "stroke-width": 2 }, svg);
-    hoverable(c, `<b>턴 ${r.turn}</b><br>컨텍스트 <b>${fmt(num(r.context_tokens))}</b> 토큰`);
-    if (i % 5 === 0) {
-      const t = el("text", { x: px(i), y: height - 12, class: "tick", "text-anchor": "middle" }, svg);
+    const c = el("circle", { cx: px(i), cy: py(num(r.context_tokens)), r: dotR, fill: ink("--seq-400"),
+      stroke: ink("--surface-1"), "stroke-width": 1.5 }, svg);
+    hoverable(c, `<b>턴 ${r.turn}</b><br>전체 문맥 크기 <b>${fmt(num(r.context_tokens))}</b> 토큰`);
+    if (i % tickEvery === 0) {
+      const t = el("text", { x: px(i), y: height - 10, class: "tick", "text-anchor": "middle" }, svg);
       t.textContent = r.turn;
     }
   });
 }
 
-/* The stacked breakdown chart is gone; what has to survive is the claim it
-   backed - that the four shares add up to what the provider actually reread.
-   Read the shares off the summary row rather than recomputing them here: the
-   formula lives in benchmark/reports/activity_log.py, and a copy of it in the
-   page would be a second place for it to drift from what was published. */
 function drawReconcileCheck() {
   const note = document.getElementById("reconcile-check");
+  if (!note) return;
   const run = state.summary.find((r) => `${r.run_date}/${r.run_id}` === state.runId);
   if (!run) { note.textContent = ""; return; }
   const sum = num(run.reconcile_opening) + num(run.reconcile_output)
     + num(run.reconcile_tool_result) + num(run.reconcile_discarded);
   const diff = num(run.reconcile_observed) - sum;
-  note.textContent = `회계 검증 — 실측 재청구 ${fmt(num(run.reconcile_observed))} 토큰 · `
-    + `초기 컨텍스트·모델 출력·tool result·버려진 컨텍스트로 분해한 합계 ${fmt(sum)} 토큰 · 차이 ${fmt(diff)}`;
-  note.className = diff === 0 ? "muted" : "muted warn";
+  note.textContent = `합계 검증: 실제 다시 읽힌 문맥 합계 ${fmt(num(run.reconcile_observed))} 토큰 · `
+    + `네 항목(첫 턴 문맥·모델 답변·도구 결과·중간 요약 제외분) 합계 ${fmt(sum)} 토큰 · 오차 ${fmt(diff)} 토큰`;
+  note.className = diff === 0 ? "note" : "note warn";
 }
 
 function drawTools(turns) {
@@ -1043,147 +1254,218 @@ function drawTools(turns) {
     names.forEach((n) => tally.set(n, (tally.get(n) || 0) + share));
   });
   const items = [...tally.entries()].sort((a, b) => b[1] - a[1]);
-  const rowH = 30, padL = 130, padR = 90, padT = 6;
-  const width = boxWidth("tools", 560), height = Math.max(60, padT + items.length * rowH + 6);
+  const width = boxWidth("tools", 560);
+  const compact = width < 460;
+  const rowH = 30, padL = compact ? 92 : 124, padR = compact ? 64 : 88, padT = 6;
+  const height = Math.max(60, padT + items.length * rowH + 6);
   if (unchanged("tools", chartSignature(width, state.runId))) return;
   const svg = frame("tools", width, height);
   if (!items.length) return;
   const max = Math.max(...items.map(([, v]) => v)) || 1;
-  const span = width - padL - padR;
+  const span = Math.max(60, width - padL - padR);
 
   items.forEach(([name, value], i) => {
     const y = padT + i * rowH;
     const w = (value / max) * span;
     const path = el("path", { d: barRight(padL, y + 5, w, rowH - 14, 4), fill: ink("--seq-400") }, svg);
-    hoverable(path, `<b>${name}</b><br>누적 tax <b>${fmt(value)}</b> 토큰`);
-    const label = el("text", { x: padL - 10, y: y + rowH / 2 + 1, class: "mark-label", "text-anchor": "end" }, svg);
+    hoverable(path, `<b>${name}</b><br>누적 반복 청구량 <b>${fmt(value)}</b> 토큰`);
+    const label = el("text", { x: padL - 8, y: y + rowH / 2 + 1, class: "mark-label", "text-anchor": "end" }, svg);
     label.textContent = name;
-    const val = el("text", { x: padL + w + 8, y: y + rowH / 2 + 1, class: "mark-label" }, svg);
+    const val = el("text", { x: padL + w + 6, y: y + rowH / 2 + 1, class: "mark-label" }, svg);
     val.textContent = fmt(value);
   });
 }
 
-function drawTrend() {
-  const byCondition = new Map();
-  state.summary.forEach((r) => {
-    if (!byCondition.has(r.condition)) byCondition.set(r.condition, new Map());
-    const dates = byCondition.get(r.condition);
-    const cost = num(r.cost_usd);
-    dates.set(r.run_date, [...(dates.get(r.run_date) || []), cost]);
-  });
-  const dates = [...new Set(state.summary.map((r) => r.run_date))].sort(byBatch);
+/* 회차별 평균 비용 추세. 개요와 같은 과제·모델 선택, 같은 유효 실행 기준을 쓴다. */
+function drawTrend(data) {
   const legend = document.getElementById("trend-legend");
   const note = document.getElementById("trend-note");
-  legend.innerHTML = "";
+  if (!legend || !note) return;
+  const { runs, fallback } = plottableRuns(data);
+  const byCondition = new Map();
+  [...runs].sort((a, b) => conditionSort(a.condition, b.condition)).forEach((r) => {
+    if (!byCondition.has(r.condition)) byCondition.set(r.condition, new Map());
+    const perDate = byCondition.get(r.condition);
+    perDate.set(r.run_date, [...(perDate.get(r.run_date) || []), r.cost]);
+  });
+  const dates = [...new Set(runs.map((r) => r.run_date))].sort(byBatch);
 
-  const padL = 64, padR = 90, padT = 14, padB = 34;
-  const width = boxWidth("trend", 560), height = 240, plot = height - padT - padB;
-  if (unchanged("trend", chartSignature(width, ""))) return;
+  const width = boxWidth("trend", 560);
+  const compact = width < 460;
+  const padL = compact ? 48 : 64, padR = compact ? 88 : 98, padT = 28, padB = 34;
+  const height = 240, plot = height - padT - padB;
+  if (unchanged("trend", chartSignature(width, `${runs.length}/${fallback}/${cohortKey()}`))) return;
+  legend.replaceChildren();
   const svg = frame("trend", width, height);
-  const values = state.summary.map((r) => num(r.cost_usd));
-  const max = Math.max(0.1, ...values) * 1.15;
+  if (!runs.length) {
+    el("text", { x: width / 2, y: height / 2, class: "tick", "text-anchor": "middle" }, svg).textContent = "표시할 실행 기록이 없습니다";
+    note.textContent = emptyReason(data);
+    return;
+  }
+  el("text", { x: 4, y: 11, class: "tick unit-label" }, svg).textContent = "평균 비용 (USD)";
+  const max = Math.max(0.1, ...runs.map((r) => r.cost)) * 1.15;
   for (let i = 0; i <= 4; i++) {
     const y = padT + (plot * i) / 4;
     el("line", { x1: padL, y1: y, x2: width - padR, y2: y, class: "grid-line" }, svg);
-    const t = el("text", { x: padL - 8, y: y + 4, class: "tick", "text-anchor": "end" }, svg);
-    t.textContent = `$${((max * (4 - i)) / 4).toFixed(2)}`;
+    const t = el("text", { x: padL - 6, y: y + 4, class: "tick", "text-anchor": "end" }, svg);
+    t.textContent = usd((max * (4 - i)) / 4);
   }
 
   const step = dates.length > 1 ? (width - padL - padR) / (dates.length - 1) : 0;
-  const px = (i) => padL + i * step;
+  const px = (i) => (dates.length > 1 ? padL + i * step : (padL + width - padR) / 2);
   const py = (v) => padT + plot - (v / max) * plot;
 
   const endLabels = [];
-  [...byCondition.entries()].forEach(([condition, perDate], slot) => {
-    const { role, dash } = seriesStyle(slot);
+  [...byCondition.entries()].forEach(([condition, perDate]) => {
+    const { role, dash } = conditionStyle(condition);
     const pts = dates.map((d, i) => {
       const arr = perDate.get(d);
-      return arr ? [px(i), py(arr.reduce((a, b) => a + b, 0) / arr.length), arr] : null;
+      return arr ? [px(i), py(mean(arr)), arr, d] : null;
     }).filter(Boolean);
     if (pts.length > 1) {
       el("path", { d: pts.map(([x, y], i) => `${i ? "L" : "M"}${x} ${y}`).join(" "),
         fill: "none", stroke: ink(role), "stroke-width": 2, "stroke-linejoin": "round",
-        "stroke-dasharray": dash }, svg);
+        "stroke-dasharray": fallback ? "4 4" : dash, "data-cond": condition, class: "trend-line" }, svg);
     }
-    /* Markers crowd out the line they sit on once batches pile up. Shrink them
-       with the spacing, and past the point where they would touch, let the line
-       carry the series on its own - the hover target stays either way. */
-    pts.forEach(([x, y, arr]) => {
-      const r = step > 22 ? 5 : step > 10 ? 3 : 0;
+    pts.forEach(([x, y, arr, d]) => {
+      const r = step > 22 || pts.length === 1 ? 4.5 : step > 10 ? 3 : 0;
       const c = r
-        ? el("circle", { cx: x, cy: y, r, fill: ink(role), stroke: ink("--surface-1"), "stroke-width": 2 }, svg)
+        ? el("circle", { cx: x, cy: y, r, fill: fallback ? ink("--surface-1") : ink(role),
+          stroke: fallback ? ink(role) : ink("--surface-1"), "stroke-width": fallback ? 2 : 1.8, "data-cond": condition }, svg)
         : el("circle", { cx: x, cy: y, r: 6, fill: "transparent" }, svg);
-      hoverable(c, `<b>${condition}</b><br>평균 비용 <b>$${(arr.reduce((a, b) => a + b, 0) / arr.length).toFixed(3)}</b><br>실행 ${arr.length}건`);
+      hoverable(c, `<b>${condition}</b><br>${d}<br>평균 비용 <b>${usd(mean(arr))}</b><br>실행 ${fmt(arr.length)}건`);
     });
     if (pts.length) endLabels.push({ condition, role, x: pts[pts.length - 1][0], y: pts[pts.length - 1][1] });
-    const item = document.createElement("span");
-    item.innerHTML = `<svg class="swatch-line" width="18" height="11" aria-hidden="true">
+  });
+  drawFocusKeys("trend-legend", "trend", [...byCondition.keys()], (condition) => {
+    const { role, dash } = conditionStyle(condition);
+    return `<svg class="swatch-line" width="18" height="11" aria-hidden="true">
       <line x1="0" y1="6" x2="18" y2="6" stroke="${ink(role)}" stroke-width="2"
-        stroke-dasharray="${dash}"></line></svg>${condition}`;
-    legend.appendChild(item);
+        stroke-dasharray="${fallback ? "4 4" : dash}"></line></svg>`;
   });
 
-  /* Conditions that land on nearly the same cost would print their names on top
-     of each other, so nudge each one below the previous. */
   endLabels.sort((a, b) => a.y - b.y).forEach((label, i, all) => {
     if (i > 0 && label.y - all[i - 1].y < 13) label.y = all[i - 1].y + 13;
-    const t = el("text", { x: label.x + 10, y: label.y + 4, class: "mark-label", fill: ink(label.role) }, svg);
+    const t = el("text", { x: label.x + 8, y: label.y + 4, class: "mark-label", fill: ink(label.role),
+      "data-cond": label.condition }, svg);
     t.textContent = label.condition;
   });
 
-  /* At one batch a week the labels collide into a smear, so only as many are
-     drawn as fit; the first and last are always kept to anchor the range. */
-  const perLabel = 78;
+  const perLabel = compact ? 86 : 78;
   const step_ = Math.max(1, Math.ceil(dates.length / Math.max(1, Math.floor((width - padL - padR) / perLabel))));
   dates.forEach((d, i) => {
     if (i % step_ && i !== dates.length - 1) return;
     if (i === dates.length - 1 && (dates.length - 1) % step_ && dates.length > 1
         && px(i) - px(i - ((dates.length - 1) % step_)) < perLabel) return;
-    const t = el("text", { x: px(i), y: height - 12, class: "tick", "text-anchor": "middle" }, svg);
-    t.textContent = d;
+    const t = el("text", { x: px(i), y: height - 10, class: "tick", "text-anchor": "middle" }, svg);
+    t.textContent = compact ? d.replace(/^\d{4}-/, "") : d;
   });
-  note.textContent = dates.length < 2
-    ? `회차가 ${dates.length}개뿐이라 추세선은 아직 그려지지 않습니다. 다음 회차가 수집되면 자동으로 이어집니다.`
-    : `회차 ${dates.length}개.`;
+  const parts = [dates.length < 2
+    ? `회차가 ${fmt(dates.length)}개뿐이라 추세선 대신 점으로 표시했습니다.`
+    : `총 ${fmt(dates.length)}개 회차의 평균 비용 흐름입니다. 점에 마우스를 올리면 그 회차의 값이 보입니다.`];
+  if (fallback) parts.push(`${emptyReason(data)} 점선과 속이 빈 점은 참고용입니다.`);
+  note.textContent = parts.join(" ");
+}
+
+/* 결과 검증 맨 위 결론. 선택한 과제·모델의 날짜별 비교(comparison.csv)에서 직접 센다. */
+function drawVerifyVerdict(data) {
+  const title = document.getElementById("verify-verdict");
+  const note = document.getElementById("verify-note");
+  if (!title || !note) return;
+  const scope = [state.promptId, state.modelId].filter(Boolean).join(" · ");
+  const scopeHtml = scope ? ` <small class="muted">(${escapeHtml(scope)} 기준)</small>` : "";
+  const verdict = judge(data);
+  if (verdict.kind === "none") {
+    title.innerHTML = `날짜별로 비교할 수 있는 데이터가 없습니다${scopeHtml}`;
+    note.textContent = emptyReason(data);
+    return;
+  }
+  title.innerHTML = (verdict.kind === "clear"
+    ? `${verdict.clears.map((r) => r.condition).join(", ")}은(는) 흔들림 폭을 넘는 차이를 보였습니다`
+    : "날짜별로 나눠 봐도 확실히 앞서는 기법은 없었습니다") + scopeHtml;
+  const perDay = comparisonRows().filter((r) => r.cost_delta_pct !== "");
+  const lower = new Map();
+  perDay.forEach((r) => {
+    const [win, all] = lower.get(r.condition) || [0, 0];
+    lower.set(r.condition, [win + (num(r.cost_delta_pct) < 0 ? 1 : 0), all + 1]);
+  });
+  const counts = [...lower.entries()].sort((a, b) => conditionSort(a[0], b[0]))
+    .map(([c, [win, all]]) => `<code>${escapeHtml(c)}</code> ${fmt(all)}번 중 ${fmt(win)}번`);
+  const ids = new Set(data.runs.map((r) => r.run_id));
+  const evaluated = state.results.filter((r) => ids.has(r.run_id) && r.evaluation_ran === "True");
+  const passed = evaluated.filter((r) => r.evaluation_passed === "True").length;
+  note.innerHTML = `같은 날 <code>BASE</code>보다 비용이 낮았던 횟수는 ${counts.join(", ")}입니다.
+    ${verdict.kind === "unclear" ? "다만 그 차이는 모두 같은 설정끼리의 흔들림 폭 안에 있었습니다." : ""}
+    ${evaluated.length ? `공개 테스트를 돌린 ${fmt(evaluated.length)}건 중 ${fmt(passed)}건이 통과했습니다.` : ""}`;
+}
+
+/* 그래프 아래 기법 이름에 마우스를 올리면 그 기법만 진하게, 나머지는 옅게. 떼면 원래대로. */
+function focusChart(svgId, keysId, condition) {
+  const svg = document.getElementById(svgId);
+  const keys = document.getElementById(keysId);
+  if (!svg) return;
+  svg.querySelectorAll("[data-cond]").forEach((node) => {
+    const mine = !condition || node.dataset.cond === condition;
+    node.style.opacity = mine ? "1" : "0.12";
+    if (node.classList.contains("trend-line")) {
+      node.setAttribute("stroke-width", condition && mine ? "3.5" : "2");
+    }
+  });
+  if (condition) svg.querySelectorAll(`[data-cond="${condition}"]`).forEach((n) => svg.appendChild(n));
+  if (keys) keys.querySelectorAll(".trend-key").forEach((key) => {
+    key.classList.toggle("is-dim", Boolean(condition) && key.dataset.cond !== condition);
+    key.classList.toggle("is-on", key.dataset.cond === condition);
+  });
 }
 
 function drawTable(turns) {
-  document.getElementById("table-count").textContent = `${turns.length}턴 · 펼쳐 보기`;
-  const cols = [["turn", "턴"], ["tools", "호출한 툴"], ["targets", "대상"], ["context_tokens", "컨텍스트"],
-    ["output_tokens", "출력"], ["result_tokens", "결과"], ["context_tax_tokens", "context tax"]];
+  const countEl = document.getElementById("table-count");
+  if (countEl) countEl.textContent = `(${commas(turns.length)}턴)`;
+  const cols = [
+    ["turn", "턴", false, "right"],
+    ["tools", "호출한 도구", false, "left"],
+    ["result_tokens", "새로 들어온 토큰", false, "right"],
+    ["context_tax_tokens", "반복 청구 토큰", false, "right"],
+    ["targets", "대상 파일·명령", true, "left"],
+    ["context_tokens", "전체 문맥 크기", true, "right"],
+    ["output_tokens", "모델 답변 토큰", true, "right"],
+  ];
   const table = document.getElementById("table");
+  if (!table) return;
   table.innerHTML = "";
   const head = table.insertRow();
-  cols.forEach(([, label]) => { const th = document.createElement("th"); th.textContent = label; head.appendChild(th); });
+  cols.forEach(([, label, extra, align]) => addHeader(head, label, { extra, align }));
   turns.forEach((r) => {
     const row = table.insertRow();
-    cols.forEach(([key]) => {
-      const cell = row.insertCell();
-      cell.textContent = key === "tools" ? (toolSummary(r) || "—")
+    cols.forEach(([key, , extra, align]) => {
+      const value = key === "tools" ? (toolSummary(r) || "—")
         : key === "targets" ? (targetPhrase(r, 2) || "—")
-        : key === "turn" ? r.turn : fmt(num(r[key]));
+        : key === "turn" ? commas(num(r.turn)) : fmt(num(r[key]));
+      addCell(row, value, { extra, align });
     });
   });
 }
 
 function drawKpis(turns) {
   const kpis = document.getElementById("kpis");
+  if (!kpis) return;
   kpis.innerHTML = "";
   if (!turns.length) return;
   const run = state.summary.find((r) => `${r.run_date}/${r.run_id}` === state.runId) || {};
   const totalTax = turns.reduce((a, r) => a + num(r.context_tax_tokens), 0);
-  /* Published as-is from run-summary.csv's invalid_reason column, not
-     re-guessed here - a run can fail more than one way at once (a Claude
-     session quota hit and a mid-run compaction, say), and only the pipeline
-     that saw both the result and the transcript can say which. */
-  const validity = num(run.measurable) ? "예" : `아니오 (${run.invalid_reason || "사유 미상"})`;
+  const validity = num(run.measurable) ? "포함" : `제외 (${friendlyInvalid(run.invalid_reason)})`;
+  const testText = run.critical_pass === "pass"
+    ? "통과"
+    : run.critical_pass === "fail"
+      ? "실패"
+      : (run.quality_score ? `${Number(run.quality_score).toFixed(0)}점` : "—");
   const cards = [
-    ["조건", run.condition || "—"],
-    ["턴 수", fmt(turns.length)],
-    ["누적 context tax", `${fmt(totalTax)} 토큰`],
-    ["비용 (API 환산)", run.cost_usd ? `$${Number(run.cost_usd).toFixed(3)}` : "—"],
-    ["품질", run.quality_score ? `${run.quality_score} · critical ${run.critical_pass}` : "—"],
-    ["측정 유효", validity],
+    ["기법", run.condition || "—"],
+    ["비용 (API 환산)", run.cost_usd ? usd(Number(run.cost_usd)) : "—"],
+    ["대화 횟수", `${commas(turns.length)}턴`],
+    ["반복 청구 토큰 (context tax)", fmt(totalTax)],
+    ["핵심 공개 테스트 (critical pass)", testText],
+    ["평균 집계", validity],
   ];
   cards.forEach(([label, value]) => {
     const box = document.createElement("div");
@@ -1192,30 +1474,29 @@ function drawKpis(turns) {
     kpis.appendChild(box);
   });
 
-  /* The raw run directories are not kept, so the provenance a reader would have
-     checked there has to be readable here. */
   const data = corpus();
   const r = data.runs.find((x) => x.key === state.runId);
   const line = document.getElementById("provenance");
+  if (!line) return;
   if (!r) { line.textContent = ""; return; }
+  const washoutText = r.washoutGap === null
+    ? "회차의 첫 실행"
+    : r.washoutGap >= 4200
+      ? `직전 실행과 ${fmt(r.washoutGap)}초 간격 (캐시 대기 시간 충족)`
+      : `직전 실행과 ${fmt(r.washoutGap)}초 간격 (<b class="warn">캐시 대기 시간 70분 미달</b>)`;
   line.innerHTML = [
-    `${r.model || "모델 미기록"}`,
-    `${(r.duration / 60).toFixed(1)}분`,
-    `툴 호출 ${fmt(r.toolCalls)}회`,
-    `변경 파일 ${fmt(r.changedFiles)}개`,
-    `첫 턴 캐시 읽기 ${fmt(r.firstCacheRead)} 토큰`,
-    r.washoutGap === null
-      ? "직전 실행 없음 (배치의 첫 실행)"
-      : `직전 실행과 ${fmt(r.washoutGap)}초 간격 · ${r.washoutGap >= 4200 ? "washout 통과" : "<b class=\"warn\">washout 미달</b>"}`,
-    `보조 모델 ${fmt(r.auxTokens)} 토큰`,
+    `모델: ${escapeHtml(r.model || "미기록")}`,
+    `소요 시간: ${(r.duration / 60).toFixed(1)}분`,
+    `도구 호출: ${fmt(r.toolCalls)}회`,
+    `변경 파일: ${fmt(r.changedFiles)}개`,
+    `첫 턴 캐시 읽기: ${fmt(r.firstCacheRead)} 토큰`,
+    washoutText,
+    `보조 모델 사용량: ${fmt(r.auxTokens)} 토큰`,
   ].join(" · ");
 }
 
 /* ---------- render ---------- */
 
-/* Only the five published conditions are ever clickable at the top level, no
-   matter how many rounds pile up. A round adds an entry inside its condition's
-   "날짜별 상세" list, not a new top-level choice. */
 function runsGroupedByCondition() {
   const allowed = new Set(buildRuns().map((r) => r.key));
   const byId = new Map();
@@ -1234,11 +1515,14 @@ function runsGroupedByCondition() {
 
 function drawRunPicker() {
   const groups = runsGroupedByCondition();
-  const conditions = [...groups.keys()]
-    .sort((a, b) => conditionRank(a) - conditionRank(b) || a.localeCompare(b));
-  if (!state.condition || !groups.has(state.condition)) state.condition = conditions[0] || null;
+  const conditions = [...groups.keys()].sort(conditionSort);
+  if (!state.condition || !groups.has(state.condition)) {
+    // 처음에는 BASE가 아닌 첫 기법을 보여 준다. 실행 상세는 BASE와의 비교가 핵심이라서다.
+    state.condition = conditions.find((c) => c !== "BASE") || conditions[0] || null;
+  }
 
   const picker = document.getElementById("condition-picker");
+  if (!picker) return;
   picker.innerHTML = "";
   conditions.forEach((condition) => {
     const button = document.createElement("button");
@@ -1249,7 +1533,7 @@ function drawRunPicker() {
       if (state.condition === condition) return;
       state.condition = condition;
       const entries = groups.get(condition);
-      state.runId = entries[entries.length - 1].id; // most recent round by default
+      state.runId = entries[entries.length - 1].id;
       render();
     });
     picker.appendChild(button);
@@ -1261,17 +1545,19 @@ function drawRunPicker() {
   }
 
   const list = document.getElementById("run-select");
+  if (!list) return;
   list.innerHTML = "";
   entries.forEach((entry) => {
     const option = document.createElement("option");
     option.value = entry.id;
-    option.textContent = `${entry.run_date} · ${entry.run_id}`;
+    option.textContent = `${entry.run_date} · ${String(entry.run_id).replace(/^[0-9a-f]{8,}-/, "")}`;
     option.selected = entry.id === state.runId;
     list.appendChild(option);
   });
   list.onchange = () => { state.runId = list.value; render(); };
 
-  document.getElementById("run-picker-count").textContent = `${entries.length}건 중`;
+  const countLabel = document.getElementById("run-picker-count");
+  if (countLabel) countLabel.textContent = `(${fmt(entries.length)}건)`;
 }
 
 function render() {
@@ -1279,16 +1565,20 @@ function render() {
   drawPicker("modelId", "model-picker", "model");
   const data = corpus();
   drawScope(data);
+  const methodTitle = document.getElementById("method-title");
+  if (methodTitle) methodTitle.textContent = `비교한 ${knownConditions().length}가지 기법`;
   drawArchive(data);
   const visibleIds = new Set(data.runs.map((r) => r.run_id));
   drawBench(state.results.filter((r) => visibleIds.has(r.run_id)));
   drawVerdict(data);
+  drawKpiStrip(data);
   drawCorpusKpis(data);
   drawDelta(data);
-  drawGuide(data);
+  drawStrip(data);
   drawOverviewTable(data);
   drawConditionTable(data);
-  drawTrend();
+  drawVerifyVerdict(data);
+  drawTrend(data);
 
   drawRunPicker();
   drawTopTurns(data);
@@ -1308,7 +1598,8 @@ const VIEWS = ["overview", "run", "verify", "settings"];
 function showView(view) {
   state.view = VIEWS.includes(view) ? view : "overview";
   VIEWS.forEach((name) => {
-    document.getElementById(`view-${name}`).hidden = name !== state.view;
+    const viewEl = document.getElementById(`view-${name}`);
+    if (viewEl) viewEl.hidden = name !== state.view;
   });
   document.querySelectorAll("#tabs button").forEach((b) => {
     b.setAttribute("aria-selected", String(b.dataset.view === state.view));
@@ -1332,8 +1623,6 @@ const CSV_COLUMNS = [
 const missing = (v) => v === undefined || v === "";
 const orNull = (v) => (missing(v) ? null : Number(v));
 
-/* 결측(null)을 0으로 취급하지 않고 평균에서 빼는 버전. 위쪽 `mean`과 달리
-   남은 값이 없으면 0이 아니라 null을 돌려준다. */
 function meanPresent(values) {
   const present = values.filter((v) => v !== null && !Number.isNaN(v));
   return present.length === 0 ? null : present.reduce((a, b) => a + b, 0) / present.length;
@@ -1350,11 +1639,6 @@ function summarizeByCondition(records) {
     byCondition.get(r.condition_id).push(r);
   }
   return [...byCondition.entries()].map(([conditionId, rows]) => {
-    /* 평균은 succeeded 실행만으로 낸다. failed·timeout은 중간에 끊긴 실행이라
-       비용·turn·토큰이 "그 조건이 쓰는 양"이 아니다 — 섞으면 조건 비교가
-       무너진다(d5e98922가 활동 로그 쪽에서 고친 것과 같은 종류의 버그).
-       건수는 전체를 함께 보여 준다: 5번 중 5번 timeout인 조건이 평균만 비어
-       표에서 조용히 사라지면 안 된다. */
     const ok = rows.filter((r) => r.status === "succeeded");
     const evaluated = ok.filter((r) => r.evaluation_ran === "True");
     const passed = evaluated.filter((r) => r.evaluation_passed === "True");
@@ -1372,14 +1656,11 @@ function summarizeByCondition(records) {
   });
 }
 
-/* run-diagnostics.json의 summary는 LLM이 쓴 자유 문장이고, 이 페이지는 GitHub
-   Pages로 공개된다. innerHTML에 그대로 넣으면 그 문장이 마크업으로 해석된다. */
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (c) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
   })[c]);
 }
-
 
 function cell(row, text) {
   const td = row.insertCell();
@@ -1391,41 +1672,42 @@ function drawBench(records) {
   const note = document.getElementById("bench-status");
   const summaryBody = document.querySelector("#summary-table tbody");
   const detailBody = document.querySelector("#detail-table tbody");
+  if (!note || !summaryBody || !detailBody) return;
   summaryBody.innerHTML = "";
   detailBody.innerHTML = "";
 
   if (records.length === 0) {
-    note.textContent = "아직 게시된 실행 결과가 없습니다. `token_bench publish`로 결과를 게시하세요.";
+    note.textContent = "선택한 범위에 게시된 실행 결과가 없습니다.";
     return;
   }
-  note.textContent = `${records.length}개 실행 결과를 표시했습니다.`;
+  note.textContent = `총 ${commas(records.length)}건의 실행 결과를 표시하고 있습니다.`;
 
   for (const s of summarizeByCondition(records)) {
     const row = summaryBody.insertRow();
-    cell(row, s.conditionId).style.textAlign = "left";
-    cell(row, s.runCount === s.totalCount
-      ? String(s.runCount)
-      : `${s.runCount} / ${s.totalCount}`);
-    cell(row, fixed(s.avgCost, 3));
-    cell(row, fixed(s.avgTurns, 1));
-    cell(row, fixed(s.avgOutputTokens, 0));
-    cell(row, fixed(s.avgCacheReadTokens, 0));
-    cell(row, s.passRate === null ? "—"
-      : `${(s.passRate * 100).toFixed(0)}% (${s.evaluatedCount}건 중)`);
+    addCell(row, conditionLabel(s.conditionId), { align: "left" });
+    addCell(row, s.runCount === s.totalCount
+      ? `${commas(s.runCount)}건`
+      : `${commas(s.runCount)} / ${commas(s.totalCount)}건`);
+    addCell(row, s.avgCost === null ? "—" : usd(s.avgCost));
+    addCell(row, fixed(s.avgTurns, 1), { extra: true });
+    addCell(row, commas(s.avgOutputTokens), { extra: true });
+    addCell(row, commas(s.avgCacheReadTokens), { extra: true });
+    addCell(row, s.passRate === null ? "—"
+      : `${(s.passRate * 100).toFixed(0)}% (${commas(s.evaluatedCount)}건)`);
   }
 
   for (const r of records) {
     const row = detailBody.insertRow();
-    cell(row, r.run_id).style.textAlign = "left";
-    cell(row, r.condition_id);
-    cell(row, r.repeat_index);
-    cell(row, r.status);
-    cell(row, missing(r.model) ? "" : r.model);
-    cell(row, missing(r.cost_usd) ? "" : r.cost_usd);
-    cell(row, missing(r.num_turns) ? "" : r.num_turns);
-    cell(row, r.evaluation_ran === "True" ? (r.evaluation_passed === "True" ? "통과" : "실패") : "—");
-    cell(row, missing(r.started_at) ? "" : r.started_at);
-    cell(row, missing(r.finished_at) ? "" : r.finished_at);
+    addCell(row, conditionLabel(r.condition_id), { align: "left" });
+    addCell(row, friendlyStatus(r.status), { align: "left" });
+    addCell(row, missing(r.cost_usd) ? "—" : usd(Number(r.cost_usd)));
+    addCell(row, missing(r.num_turns) ? "—" : commas(Number(r.num_turns)));
+    addCell(row, r.evaluation_ran === "True" ? (r.evaluation_passed === "True" ? "통과" : "실패") : "—");
+    addCell(row, r.run_id, { extra: true, align: "left", className: "mono-cell" });
+    addCell(row, missing(r.repeat_index) ? "—" : commas(Number(r.repeat_index)), { extra: true });
+    addCell(row, missing(r.model) ? "—" : r.model, { extra: true, align: "left" });
+    addCell(row, missing(r.started_at) ? "—" : r.started_at.slice(0, 16).replace("T", " "), { extra: true, align: "left" });
+    addCell(row, missing(r.finished_at) ? "—" : r.finished_at.slice(0, 16).replace("T", " "), { extra: true, align: "left" });
   }
 }
 
@@ -1444,33 +1726,29 @@ async function boot() {
       load("../data/comparison.csv"),
     ]);
   } catch (error) {
-    /* 데이터가 아예 없어도(방금 지운 상태 등) 탭 전환·"실험 설정"은 계속 써야
-       한다 - 여기서 return하면 아래의 탭 클릭·hash 연결이 안 걸려서 페이지가
-       개요에 고정돼 버린다. state.activity/summary/comparison은 이미 []로
-       초기화돼 있으니 그대로 두고 계속 진행한다. */
     document.querySelector(".wrap").insertAdjacentHTML("beforeend",
       `<section class="card"><h2>데이터를 불러오지 못했습니다</h2>
-       <p class="sub">${error.message}</p>
+       <p class="sub">${escapeHtml(error.message)}</p>
        <p class="muted">저장소 루트에서 <code>python3 -m http.server</code>를 실행한 뒤
-       <code>/web/</code>을 여세요. <code>file://</code>로 직접 열면 브라우저가 CSV 읽기를 막습니다.</p>
+       <code>/web/</code>을 여세요. 파일을 직접 열면(<code>file://</code>) 브라우저가 CSV 읽기를 차단합니다.</p>
        </section>`);
   }
 
-  /* 실패·재확인처럼 "왜 이렇게 갈렸나"에 쓸 정성적 원인. 특이사항 있는
-     실행만 항목이 있으므로 파일 자체가 없을 수 있다 - 그럼 그냥 빈 객체. */
   try {
     const res = await fetch("../data/run-diagnostics.json");
     state.diagnostics = res.ok ? await res.json() : {};
-  } catch {
+  } catch (error) {
+    console.warn("진단 데이터를 불러오지 못했습니다:", error);
     state.diagnostics = {};
   }
 
-  /* 새 파이프라인 CSV는 아직 비어 있을 수 있다. 실패해도 나머지 화면은 그린다. */
   try {
     state.results = await load("../data/token-bench-results.csv");
   } catch (error) {
-    document.getElementById("bench-status").textContent =
-      `token-bench 결과를 불러오지 못했습니다: ${error.message}`;
+    const statusNode = document.getElementById("bench-status");
+    if (statusNode) {
+      statusNode.textContent = `실행 결과 원본을 불러오지 못했습니다: ${error.message}`;
+    }
   }
 
   document.querySelectorAll("#tabs button").forEach((b) => {
@@ -1478,13 +1756,33 @@ async function boot() {
   });
   addEventListener("hashchange", () => showView(location.hash.slice(1)));
 
-  const themeButton = document.getElementById("theme");
-  themeButton.addEventListener("click", () => {
-    const dark = document.documentElement.getAttribute("data-theme") === "dark";
-    document.documentElement.setAttribute("data-theme", dark ? "light" : "dark");
-    themeButton.setAttribute("aria-pressed", String(!dark));
-    render();
+  document.querySelectorAll(".toggle-cols-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const targetTable = document.getElementById(btn.dataset.target);
+      if (!targetTable) return;
+      const expanded = targetTable.classList.toggle("show-extra-cols");
+      btn.setAttribute("aria-expanded", String(expanded));
+      btn.textContent = expanded ? "세부 열 접기" : "세부 열 펼치기";
+    });
   });
+
+  document.querySelectorAll("details.fold").forEach((detailEl) => {
+    detailEl.addEventListener("toggle", () => {
+      if (!detailEl.open) return;
+      detailEl.querySelectorAll("svg[data-sig]").forEach((svg) => { svg.dataset.sig = ""; });
+      render();
+    });
+  });
+
+  const themeButton = document.getElementById("theme");
+  if (themeButton) {
+    themeButton.addEventListener("click", () => {
+      const dark = document.documentElement.getAttribute("data-theme") === "dark";
+      document.documentElement.setAttribute("data-theme", dark ? "light" : "dark");
+      themeButton.setAttribute("aria-pressed", String(!dark));
+      render();
+    });
+  }
 
   let resizing = null;
   addEventListener("resize", () => {
@@ -1492,12 +1790,17 @@ async function boot() {
     resizing = setTimeout(render, 150);
   });
 
-  // 기본 코호트 자동 선택 (첫 방문 시 빈 화면 방지)
-  if (!state.promptId && state.summary.some((r) => r.prompt_id === "small")) {
-    state.promptId = "small";
-  }
-  if (!state.modelId && state.summary.some((r) => r.model === "claude-sonnet-5")) {
-    state.modelId = "claude-sonnet-5";
+  // 처음 화면은 유효한 실행이 가장 많은 과제·모델 조합으로 연다. 특정 과제 이름에 기대지 않는다.
+  if (!state.promptId && !state.modelId) {
+    const counts = new Map();
+    state.summary
+      .filter((r) => num(r.measurable) === 1 && r.prompt_id && !r.prompt_id.startsWith("legacy:"))
+      .forEach((r) => {
+        const key = JSON.stringify([r.prompt_id, r.model]);
+        counts.set(key, (counts.get(key) || 0) + 1);
+      });
+    const top = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
+    if (top) [state.promptId, state.modelId] = JSON.parse(top[0]);
   }
 
   showView(location.hash.slice(1) || "overview");
@@ -1505,8 +1808,20 @@ async function boot() {
 
 if (typeof document !== "undefined") boot();
 
-/* Node 기반 테스트(tests/test_web.py)가 순수 함수만 불러 쓸 수 있게 한다.
-   브라우저에는 `module`이 없으므로 이 블록은 아무 효과가 없다. */
+/* "비교한 기법": 이름은 항상 보이고, 설명만 접었다 펼 수 있다. */
+(function setupMethodToggle() {
+  if (typeof document === "undefined") return;
+  const button = document.getElementById("method-toggle");
+  const list = document.getElementById("method-list");
+  if (!button || !list) return;
+  button.addEventListener("click", () => {
+    const collapsed = list.classList.toggle("collapsed");
+    button.textContent = collapsed ? "설명 펼치기" : "설명 접기";
+    button.setAttribute("aria-expanded", String(!collapsed));
+  });
+})();
+
+/* Node 기반 테스트(tests/test_web.py)가 순수 함수만 불러 쓸 수 있게 한다. */
 if (typeof module !== "undefined" && module.exports) {
   module.exports = { parseCsv, toRecords, summarizeByCondition, CSV_COLUMNS, state, buildRuns, comparisonRows };
 }

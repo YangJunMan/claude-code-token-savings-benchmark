@@ -68,9 +68,24 @@ function selectedConditionIds() {
   );
 }
 
+/* 과제 프리셋 목록은 서버(workspace.PROMPT_PRESETS)가 정한다. 여기에 이름을 적어 두지 않는다. */
+function renderPresetOptions(presets) {
+  const select = document.getElementById("prompt-preset");
+  if (!select) return;
+  select.querySelectorAll("option[data-preset]").forEach((o) => o.remove());
+  for (const preset of presets || []) {
+    const option = document.createElement("option");
+    option.value = preset.id;
+    option.dataset.preset = "1";
+    option.textContent = preset.description ? `${preset.id} — ${preset.description}` : preset.id;
+    select.appendChild(option);
+  }
+}
+
 async function loadConditions() {
   const body = await fetchJson("/api/conditions");
   renderConditionList(body.conditions);
+  renderPresetOptions(body.presets);
 }
 
 /* 계획을 읽을 수 있는 형태로만 보여 준다. 원본 JSON 전체가 아니라 무엇을
@@ -92,7 +107,12 @@ function renderPlan(plan) {
   for (const [label, value] of cards) {
     const box = document.createElement("div");
     box.className = "kpi";
-    box.innerHTML = `<div class="label">${label}</div><div class="value">${value}</div>`;
+    for (const [cls, text] of [["label", label], ["value", value]]) {
+      const cell = document.createElement("div");
+      cell.className = cls;
+      cell.textContent = text;
+      box.appendChild(cell);
+    }
     kpis.appendChild(box);
   }
 
@@ -268,8 +288,13 @@ async function updateLiveLog(runningJob) {
       const text = event.name
         ? `${event.name} ${event.input || ""}`
         : event.text || "";
-      row.innerHTML = `<span class="tag tag-${event.kind}">${EVENT_TAGS[event.kind] || event.kind}</span><div class="body"></div>`;
-      row.querySelector(".body").textContent = text;
+      const tag = document.createElement("span");
+      tag.className = `tag tag-${String(event.kind).replace(/[^a-z0-9_-]/gi, "")}`;
+      tag.textContent = EVENT_TAGS[event.kind] || event.kind;
+      const bodyEl = document.createElement("div");
+      bodyEl.className = "body";
+      bodyEl.textContent = text;
+      row.append(tag, bodyEl);
       log.appendChild(row);
     }
     log.scrollTop = log.scrollHeight;
@@ -289,14 +314,16 @@ function renderJobsTable() {
   const tbody = document.querySelector("#jobs-table tbody");
   tbody.innerHTML = "";
   for (const job of jobs) {
+    // 값은 textContent로만 넣는다. run_id·조건 id는 사용자가 추가한 선언에서 오므로
+    // 문자열을 그대로 HTML로 해석하면 안 된다.
     const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td><code>${job.run_id}</code></td>
-      <td>${job.condition_id}</td>
-      <td>${job.status}</td>
-      <td>${job.enqueued_at}</td>
-      <td></td>
-    `;
+    const code = document.createElement("code");
+    code.textContent = job.run_id;
+    tr.insertCell().appendChild(code);
+    for (const value of [job.condition_id, job.status, job.enqueued_at]) {
+      tr.insertCell().textContent = value ?? "";
+    }
+    tr.insertCell();
     if (RETRYABLE_STATUSES.has(job.status)) {
       const btn = document.createElement("button");
       btn.type = "button";
