@@ -357,14 +357,25 @@ function knownConditions() {
 const conditionStyle = (condition) => seriesStyle(Math.max(0, knownConditions().indexOf(condition)));
 
 /* 같은 BASE끼리의 흔들림 폭을 비용·토큰 모두 넘었는지. 판정은 이 함수 하나로만 한다. */
+/* BASE를 2회 이상 돌려야 흔들림 폭을 잴 수 있다. 못 쟀으면 판정을 보류한다. */
+function noiseKnown(noise) {
+  return noise.processed != null && noise.cost != null;
+}
+
 function beatsNoise(row, noise) {
-  return noise.processed != null && noise.cost != null &&
+  return noiseKnown(noise) &&
     Math.abs(row.processed) > noise.processed && Math.abs(row.cost) > noise.cost;
+}
+
+function noiseLabel(row, noise) {
+  if (!noiseKnown(noise)) return "흔들림 폭 미측정";
+  return beatsNoise(row, noise) ? "흔들림 폭 초과" : "흔들림 폭 안";
 }
 
 /* 지금 선택한 과제·모델의 판정. 결론 문구, 상태 배지, 지표 띠가 모두 이 결과를 쓴다. */
 function judge(data) {
   if (!data.rows.length) return { kind: "none", label: "비교 불가", clears: [] };
+  if (!noiseKnown(data.noise)) return { kind: "pending", label: "판정 보류", clears: [] };
   const clears = data.rows.filter((r) => beatsNoise(r, data.noise));
   return clears.length
     ? { kind: "clear", label: "차이 관측", clears }
@@ -523,7 +534,14 @@ function drawVerdict(data) {
     }
     return;
   }
-  const { clears } = judge(data);
+  const { kind, clears } = judge(data);
+  if (kind === "pending") {
+    const base = data.runs.filter((r) => r.condition === "BASE" && r.measurable).length;
+    verdict.textContent = "BASE 대비 차이는 보이지만 아직 효과로 판정할 수 없습니다";
+    note.innerHTML = `<strong>BASE</strong> 유효 실행이 ${base}건뿐이라 같은 설정끼리 얼마나 흔들리는지 잴 수 없습니다.
+      <strong>BASE</strong>를 2회 이상 실행하면 흔들림 폭과 비교해 판정합니다. 아래 증감률은 참고용입니다.`;
+    return;
+  }
   if (!clears.length) {
     verdict.textContent = "어떤 절약법도 확실한 효과가 확인되지 않았습니다";
     note.innerHTML = `일부 기법은 비용이 낮게 나왔지만, 아무 설정도 하지 않은 <strong>BASE</strong>끼리도 그만큼 결과가 흔들렸습니다.
@@ -583,6 +601,7 @@ function drawKpiStrip(data) {
   const verdict = judge(data);
   const verdictSub = {
     none: "유효한 BASE 비교 없음",
+    pending: "BASE 흔들림 폭 미측정",
     unclear: "모든 기법이 흔들림 폭 안",
     clear: `${verdict.clears.map((r) => r.condition).join(", ")}이(가) 흔들림 폭 밖`,
   }[verdict.kind];
@@ -797,12 +816,11 @@ function drawOverviewTable(data) {
   addHeader(head, "상세", { extra: true, align: "left" });
 
   data.rows.forEach((delta) => {
-    const beats = beatsNoise(delta, data.noise);
     const row = table.insertRow();
     addCell(row, delta.condition, { align: "left" });
     addCell(row, pct(delta.cost), { className: delta.cost < 0 ? "good" : "bad" });
     addCell(row, pct(delta.processed), { className: delta.processed < 0 ? "good" : "bad" });
-    addCell(row, beats ? "흔들림 폭 초과" : "흔들림 폭 안", { align: "left" });
+    addCell(row, noiseLabel(delta, data.noise), { align: "left" });
     addCell(row, `${fmt(delta.runs)}건 (${fmt(delta.batches)}회차)`, { extra: true, align: "left" });
     const go = addCell(row, "", { extra: true, align: "left" });
     const link = document.createElement("button");
@@ -873,7 +891,7 @@ function drawConditionTable(data) {
     addCell(row, delta ? pct(delta.cost) : "기준", {
       className: delta ? (delta.cost < 0 ? "good" : "bad") : "",
     });
-    addCell(row, delta ? (beats ? "예" : "아니오") : "—", {
+    addCell(row, !delta ? "—" : !noiseKnown(data.noise) ? "미측정" : beats ? "예" : "아니오", {
       align: "left",
       className: delta && beats ? "good" : "",
     });
@@ -939,9 +957,16 @@ function componentNote(key, run, base) {
     중간에 줄어든 내용이 있으면 반복 청구 토큰(context tax)이 실제보다 크게 잡힐 수 있어 해석에 주의해야 합니다.`;
 }
 
+/* comparison.csv(ledger.rebuild_comparison)와 같은 기준선: 그 날짜까지 쌓인 유효한
+   BASE 중 최근 것들. 창 크기는 게시된 행의 baseline_runs를 그대로 따른다. */
 function baselineFor(run, data) {
   const batch = data.batches.find((b) => b.date === run.run_date);
-  const peers = batch ? batch.base.filter((r) => r.key !== run.key) : [];
+  const bases = data.runs.filter((r) => r.condition === "BASE" && r.measurable && r.key !== run.key)
+    .sort((a, b) => a.run_date.localeCompare(b.run_date));
+  const earlier = bases.filter((r) => r.run_date <= run.run_date);
+  const published = comparisonRows().find((r) => r.run_date === run.run_date && r.condition === run.condition);
+  const size = published ? Number(published.baseline_runs) : earlier.length;
+  const peers = earlier.length ? earlier.slice(-size) : bases.slice(0, size);
   if (!peers.length) return { batch, peers, base: null };
   const avg = (f) => mean(peers.map((r) => r[f]));
   const roles = peers.map((r) => resultByRole(r.rows));
@@ -962,9 +987,9 @@ function baselineFor(run, data) {
 function missingBaseline(run) {
   return run.condition === "BASE"
     ? `<p class="verdict run-verdict">비교 기준 실행 (BASE)</p>
-       <p class="hero-note">아무 절약법도 쓰지 않은 기본 상태의 실행입니다. 위쪽에서 다른 기법(<code>BE_BRIEF</code> 등)을 선택하면 같은 날 실행한 <code>BASE</code> 평균과 얼마나 차이가 났는지 바로 비교해 보여줍니다.</p>`
+       <p class="hero-note">아무 절약법도 쓰지 않은 기본 상태의 실행입니다. 위쪽에서 다른 기법(<code>BE_BRIEF</code> 등)을 선택하면 그 시점까지의 최근 <code>BASE</code> 평균과 얼마나 차이가 났는지 바로 비교해 보여줍니다.</p>`
     : `<p class="verdict run-verdict">비교 기준 없음</p>
-       <p class="hero-note"><strong>${run.run_date}</strong> 회차에는 비교 기준이 될 <code>BASE</code> 실행 기록이 없습니다. 아래에서 이 실행 자체의 요약 수치와 턴별 흐름을 확인할 수 있습니다.</p>`;
+       <p class="hero-note"><strong>${run.run_date}</strong> 회차까지 비교 기준이 될 유효한 <code>BASE</code> 실행 기록이 없습니다. 아래에서 이 실행 자체의 요약 수치와 턴별 흐름을 확인할 수 있습니다.</p>`;
 }
 
 function drawRunDelta(data) {
@@ -1009,13 +1034,13 @@ function drawRunDelta(data) {
   const howMuch = processedPct < 0 ? `${amount} 적게 썼` : `${amount} 더 썼`;
   const summaryConclusion = noise != null
     ? (inNoise
-      ? `같은 날 BASE보다 토큰을 ${howMuch}지만, 같은 설정끼리의 흔들림 폭 안이라 효과로 보기 어렵습니다`
-      : `같은 날 BASE보다 토큰을 ${howMuch}고, 이날의 흔들림 폭을 넘었습니다`)
-    : `같은 날 BASE보다 토큰을 ${howMuch}습니다`;
+      ? `최근 BASE보다 토큰을 ${howMuch}지만, 같은 설정끼리의 흔들림 폭 안이라 효과로 보기 어렵습니다`
+      : `최근 BASE보다 토큰을 ${howMuch}고, 이날의 흔들림 폭을 넘었습니다`)
+    : `최근 BASE보다 토큰을 ${howMuch}습니다`;
 
   box.innerHTML = `
     <p class="verdict run-verdict ${total < 0 ? "good" : "bad"}">${summaryConclusion}</p>
-    <p class="hero-note">다시 읽히며 청구된 문맥 합계가 <strong>${fmt(run.observed)}</strong> 토큰으로, 같은 날 <code>BASE</code> 평균(${fmt(base.observed)} 토큰)보다 <strong>${signed(total)}</strong> 토큰 ${total < 0 ? "적었습니다" : "많았습니다"}. 대화 횟수는 ${base.turns.toFixed(1)}턴에서 ${fmt(run.turns)}턴이 되었습니다.${noise != null ? ` 이날 같은 <code>BASE</code> 실행끼리의 흔들림 폭(noise floor)은 ±${noise.toFixed(1)}%였습니다.` : ""}</p>
+    <p class="hero-note">다시 읽히며 청구된 문맥 합계가 <strong>${fmt(run.observed)}</strong> 토큰으로, 최근 <code>BASE</code> 평균(${fmt(base.observed)} 토큰)보다 <strong>${signed(total)}</strong> 토큰 ${total < 0 ? "적었습니다" : "많았습니다"}. 대화 횟수는 ${base.turns.toFixed(1)}턴에서 ${fmt(run.turns)}턴이 되었습니다.${noise != null ? ` 이날 같은 <code>BASE</code> 실행끼리의 흔들림 폭(noise floor)은 ±${noise.toFixed(1)}%였습니다.` : ""}</p>
     <div class="chart run-delta-chart"><svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"
       role="img" aria-label="BASE 대비 항목별 토큰 차이">
       <line x1="${zero}" y1="${padT}" x2="${zero}" y2="${height - 6}" class="axis-line"></line>
@@ -1394,9 +1419,11 @@ function drawVerifyVerdict(data) {
     note.textContent = emptyReason(data);
     return;
   }
-  title.innerHTML = (verdict.kind === "clear"
-    ? `${verdict.clears.map((r) => r.condition).join(", ")}은(는) 흔들림 폭을 넘는 차이를 보였습니다`
-    : "날짜별로 나눠 봐도 확실히 앞서는 기법은 없었습니다") + scopeHtml;
+  title.innerHTML = ({
+    clear: `${verdict.clears.map((r) => r.condition).join(", ")}은(는) 흔들림 폭을 넘는 차이를 보였습니다`,
+    pending: "BASE 반복 실행이 없어 흔들림 폭과 비교하지 못했습니다",
+    unclear: "날짜별로 나눠 봐도 확실히 앞서는 기법은 없었습니다",
+  })[verdict.kind] + scopeHtml;
   const perDay = comparisonRows().filter((r) => r.cost_delta_pct !== "");
   const lower = new Map();
   perDay.forEach((r) => {
@@ -1408,7 +1435,7 @@ function drawVerifyVerdict(data) {
   const ids = new Set(data.runs.map((r) => r.run_id));
   const evaluated = state.results.filter((r) => ids.has(r.run_id) && r.evaluation_ran === "True");
   const passed = evaluated.filter((r) => r.evaluation_passed === "True").length;
-  note.innerHTML = `같은 날 <code>BASE</code>보다 비용이 낮았던 횟수는 ${counts.join(", ")}입니다.
+  note.innerHTML = `최근 <code>BASE</code>보다 비용이 낮았던 횟수는 ${counts.join(", ")}입니다.
     ${verdict.kind === "unclear" ? "다만 그 차이는 모두 같은 설정끼리의 흔들림 폭 안에 있었습니다." : ""}
     ${evaluated.length ? `공개 테스트를 돌린 ${fmt(evaluated.length)}건 중 ${fmt(passed)}건이 통과했습니다.` : ""}`;
 }
