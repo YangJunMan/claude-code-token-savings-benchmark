@@ -1816,11 +1816,42 @@ async function boot() {
   });
 
   const themeButton = document.getElementById("theme");
+  function getEffectiveTheme() {
+    const attr = document.documentElement.getAttribute("data-theme");
+    if (attr === "dark" || attr === "light") return attr;
+    try {
+      const stored = localStorage.getItem("theme");
+      if (stored === "dark" || stored === "light") return stored;
+    } catch (_) {}
+    return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  }
+
+  function applyTheme(theme, save = false) {
+    document.documentElement.setAttribute("data-theme", theme);
+    if (themeButton) themeButton.setAttribute("aria-pressed", String(theme === "dark"));
+    if (save) {
+      try { localStorage.setItem("theme", theme); } catch (_) {}
+    }
+  }
+
+  applyTheme(getEffectiveTheme(), false);
+
+  if (window.matchMedia) {
+    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (e) => {
+      let hasStored = false;
+      try { hasStored = !!localStorage.getItem("theme"); } catch (_) {}
+      if (!hasStored) {
+        applyTheme(e.matches ? "dark" : "light", false);
+        render();
+      }
+    });
+  }
+
   if (themeButton) {
     themeButton.addEventListener("click", () => {
-      const dark = document.documentElement.getAttribute("data-theme") === "dark";
-      document.documentElement.setAttribute("data-theme", dark ? "light" : "dark");
-      themeButton.setAttribute("aria-pressed", String(!dark));
+      const currentTheme = getEffectiveTheme();
+      const nextTheme = currentTheme === "dark" ? "light" : "dark";
+      applyTheme(nextTheme, true);
       render();
     });
   }
