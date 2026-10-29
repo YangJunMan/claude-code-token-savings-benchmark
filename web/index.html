@@ -10,6 +10,16 @@
 <meta property="og:type" content="website">
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect x='3' y='12' width='4' height='9' rx='1' fill='%232a78d6'/><rect x='10' y='7' width='4' height='14' rx='1' fill='%232a78d6'/><rect x='17' y='3' width='4' height='18' rx='1' fill='%232a78d6'/></svg>">
 <link rel="stylesheet" href="style.css">
+<script>
+(function() {
+  try {
+    const stored = localStorage.getItem("theme");
+    if (stored === "dark" || stored === "light") {
+      document.documentElement.setAttribute("data-theme", stored);
+    }
+  } catch (e) {}
+})();
+</script>
 </head>
 <body>
 
