@@ -662,3 +662,189 @@ input[type="checkbox"] { width: auto; }
 .swatch.dot.hollow { background: transparent; border: 2px solid var(--text-muted); width: 9px; height: 9px; }
 .status-pill.is-muted { background: color-mix(in srgb, var(--text-muted) 15%, transparent); color: var(--text-secondary); border-color: var(--text-muted); }
 .kpi-tile.muted-tile .kpi-value { color: var(--text-secondary); }
+
+
+/* 대시보드 공통 레이아웃 */
+body { padding: 0 0 3rem 220px; font-size: 14px; line-height: 1.5; }
+.topbar { position: fixed; inset: 0 auto 0 0; width: 220px; height: 100dvh; padding: 22px 14px; margin: 0; display: flex; flex-direction: column; align-items: stretch; gap: 24px; border: 0; border-right: 1px solid var(--border); box-shadow: none; overflow-y: auto; }
+.brand { margin: 0; padding: 0 8px; }
+.brand h1 { font-size: 1rem; }
+.tabs { display: flex; flex-direction: column; gap: 3px; }
+.tabs button { text-align: left; padding: .7rem .8rem; border: 0; border-radius: 5px; }
+.tabs button[aria-selected="true"] { color: var(--text-primary); background: var(--plane); box-shadow: inset 3px 0 var(--series-1); }
+.topbar-controls { margin-top: auto; display: grid; gap: .8rem; }
+.topbar-controls .scope-field { display: grid; gap: .25rem; }
+.topbar-controls select, #theme { width: 100%; }
+.wrap { max-width: 1700px; padding: 20px 24px 0; }
+.preview-heading { display:flex; justify-content:space-between; align-items:center; gap:1rem; margin-bottom: 14px; }
+.preview-heading h2 { font-size:1.2rem; margin:0; }
+.preview-heading p, .preview-heading span { margin:2px 0 0; font-size:.8rem; color:var(--text-muted); }
+.kpi-strip { margin: 0 0 10px; gap:10px; }
+.kpi-tile { padding: 14px 16px; min-height: 100px; box-shadow:none; border-radius:6px; }
+.kpi-tile.warn, .kpi-tile.neutral { border-color:var(--border); }
+.kpi-tile.neutral .kpi-value { color:var(--text-primary); }
+.kpi-label { font-size:.8rem; } .kpi-value { font-size:1.45rem; margin:4px 0; }
+.card { box-shadow:none; border-radius:6px; padding:16px; margin-bottom:10px; }
+.hero-card { border-left:1px solid var(--border); }
+.hero-compact { display:grid; grid-template-columns: minmax(200px, .8fr) 2fr; gap: 3px 20px; align-items:center; }
+.hero-head { grid-column:1; margin:0; } .hero-head .eyebrow { display:none; }
+.hero-compact .verdict { grid-column:1; font-size:1rem; margin:0; }
+.hero-compact .hero-note { grid-column:2; grid-row:1 / span 2; font-size:.86rem; }
+.status-pill { border:0; border-radius:3px; padding:2px 5px; font-size:.72rem; }
+.grid12 { gap:10px; } .overview-main { margin-bottom:10px; }
+.overview-main > .card { margin:0; }
+.card h2 { font-size:1rem; } .muted { font-size:.82rem; }
+.trend-legend { justify-content:flex-start; gap:.3rem; }
+.trend-key { border-radius:4px; padding:.25rem .5rem; font-size:.78rem; }
+.trend-key:hover, .trend-key.is-on { box-shadow:none; }
+.methods .method-list { grid-template-columns:repeat(5,minmax(0,1fr)); gap:12px; }
+.methods .method-item { display:flex; flex-direction:column; gap:5px; }
+.method-item .treatment-tag { background:none; padding:0; }
+.fold-card + .fold-card { margin-top:0; }
+button:hover, select:hover { border-color:var(--axis); }
+button:focus-visible, select:focus-visible, summary:focus-visible { outline:2px solid var(--series-1); outline-offset:2px; }
+@media (max-width: 900px) {
+ body { padding:0 0 2rem; } .topbar { position:relative; inset:auto; width:auto; height:auto; padding:12px 16px; gap:12px; }
+ .tabs { flex-direction:row; flex-wrap:wrap; } .tabs button { padding:.45rem .65rem; }
+ .topbar-controls { display:flex; margin:0; } .topbar-controls .scope-field { display:flex; } .topbar-controls select, #theme { width:auto; }
+ .wrap { padding:16px 14px 0; } .hero-compact { display:block; } .hero-compact .hero-note { margin-top:6px; }
+ .methods .method-list { grid-template-columns:repeat(2,minmax(0,1fr)); }
+}
+@media (max-width: 640px) { .kpi-strip { grid-template-columns:repeat(2,minmax(0,1fr)); } .methods .method-list { grid-template-columns:1fr; } }
+/* 두 차트는 같은 열에 배치하고 오른쪽에 기법 설명을 둔다. */
+.overview-main { grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr); align-items: stretch; }
+.overview-main > .delta-card { grid-column: 1; grid-row: 1; }
+.overview-main > .strip-card { grid-column: 1; grid-row: 2; }
+.overview-main > .methods { grid-column: 2; grid-row: 1 / span 2; }
+.overview-main .methods .method-list { grid-template-columns: 1fr; gap: 0; }
+.overview-main .methods .method-item { padding: .75rem 0; border-bottom: 1px solid var(--grid); }
+.overview-main .methods .method-item:last-child { border: 0; }
+@media (max-width: 900px) {
+  .overview-main { grid-template-columns: minmax(0, 1fr); }
+  .overview-main > .delta-card, .overview-main > .strip-card, .overview-main > .methods { grid-column: 1; grid-row: auto; }
+  .overview-main > .delta-card { order: 0; }
+  .overview-main > .strip-card { order: 1; }
+  .overview-main > .methods { order: 2; }
+}
+/* 결론과 지표를 함께 읽도록 상단을 한 묶음으로 배치한다. */
+.summary-band { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(340px, 1fr); align-items: center; gap: 20px; margin-bottom: 10px; padding: 16px; background: var(--surface-1); border: 1px solid var(--border); border-radius: 6px; }
+.summary-band .hero-compact { display: block; padding: 0; margin: 0; background: transparent; border: 0; }
+.summary-band .hero-head { margin-bottom: 7px; }
+.summary-band .hero-compact .verdict { font-size: 1.15rem; line-height: 1.35; margin-bottom: 6px; }
+.summary-band .hero-compact .hero-note { font-size: .85rem; }
+.summary-band .kpi-strip { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0; padding: 12px; gap: 12px 18px; background: var(--plane); border-radius: 5px; }
+.summary-band .kpi-tile { min-height: 0; padding: 0; background: transparent; border: 0; }
+.summary-band .kpi-value { font-size: 1.2rem; margin: 2px 0; }
+@media (max-width: 1200px) and (min-width: 901px) {
+ body { padding-left: 180px; } .topbar { width: 180px; } .wrap { padding: 16px; }
+ .overview-main { grid-template-columns: minmax(0, 2fr) minmax(220px, 1fr); }
+ .summary-band { grid-template-columns: minmax(0, 1fr) minmax(300px, 1fr); }
+}
+@media (max-width: 700px) {
+ .summary-band { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+}
+/* 조금 줄인 창에서도 본문 가장자리에 일정한 여유를 둔다. */
+.wrap { padding-left: clamp(24px, 3vw, 48px); padding-right: clamp(24px, 3vw, 48px); }
+.overview-main .methods .method-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; }
+.method-kind { color: var(--text-muted); font-size: .75rem; }
+.overview-main .methods .treatment-desc { grid-column: 1 / -1; font-size: .82rem; }
+@media (max-width: 700px) { .wrap { padding-left: 18px; padding-right: 18px; } }
+/* 같은 위치에서 비교 관점을 전환한다. */
+.overview-main > .chart-panel { grid-column: 1; grid-row: 1; min-width: 0; }
+.overview-main > .methods { grid-column: 2; grid-row: 1; }
+.chart-tabs { display: inline-flex; flex-wrap: wrap; gap: 3px; margin: 8px 0 12px; padding: 3px; background: var(--plane); border: 1px solid var(--border); border-radius: 7px; }
+.chart-tabs button { border: 0; border-radius: 4px; padding: .4rem .7rem; color: var(--text-secondary); background: transparent; font-size: .82rem; }
+.chart-tabs button[aria-selected="true"] { color: var(--text-primary); background: var(--surface-1); font-weight: 600; }
+.chart-tabs button:hover { color: var(--text-primary); }
+.chart-panel .delta-card { margin: 0; }
+@media (max-width: 900px) {
+ .overview-main > .chart-panel, .overview-main > .methods { grid-column: 1; grid-row: auto; }
+}
+/* 공통 UI: 패널은 부드러운 모서리, 선택 컨트롤은 둥근 형태로 통일한다. */
+.card, .summary-band, .modal { border-radius: 10px; box-shadow: none; }
+.summary-band .kpi-strip { border-radius: 8px; }
+.tabs button { border-radius: 8px; }
+select, input, button, .method-toggle { border-radius: 8px; }
+input[type="checkbox"], input[type="radio"] { border-radius: initial; }
+.chart-tabs, .segmented {
+  align-self: flex-start; max-width: 100%; padding: 4px; gap: 2px;
+  border: 1px solid var(--border); border-radius: 999px; background: var(--plane);
+}
+.chart-tabs button, .segmented button {
+  border: 0; border-radius: 999px; background: transparent;
+  color: var(--text-secondary); padding: .45rem .85rem; font-weight: 500;
+}
+.chart-tabs button[aria-selected="true"], .segmented button[aria-pressed="true"] {
+  color: var(--text-primary); background: var(--surface-1); font-weight: 600;
+}
+.trend-key, .chip, .status-pill { border-radius: 999px; }
+.trend-key { padding: .3rem .65rem; }
+button, select { transition: background-color .15s ease, border-color .15s ease, color .15s ease; }
+@media (max-width: 540px) {
+ .chart-tabs, .segmented { border-radius: 14px; }
+ .chart-tabs button, .segmented button { padding: .4rem .65rem; }
+}
+/* 전환 중 그래프 영역의 크기를 유지하고 제목·설명·범례 순서를 통일한다. */
+.chart-panel [role="tabpanel"] { min-height: 0; animation: chart-enter .18s ease-out; }
+.chart-panel [role="tabpanel"] > h2 { margin: 0 0 .3rem; }
+.chart-panel [role="tabpanel"] > .muted { margin: 0 0 .5rem; }
+.chart-panel [role="tabpanel"] > .legend { justify-content: flex-start; margin: 0; min-height: 1.4rem; }
+.chart-panel [role="tabpanel"] > .chart { min-height: 300px; padding-top: 0; }
+.chart-panel [role="tabpanel"] > .trend-legend { margin: .5rem 0 0; }
+@keyframes chart-enter { from { opacity: .45; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .chart-panel [role="tabpanel"] { animation: none; } }
+.chart-panel { min-height: 544px; }
+/* 전환할 때 그래프와 기법 이름의 시작 위치를 맞춘다. */
+.chart-panel [role="tabpanel"] > .muted { min-height: 1.5em; }
+.chart-panel [role="tabpanel"] > .legend { min-height: 1.4rem; align-content: start; }
+/* 실행 상세, 결과 검증, 실험 설정 공통 정보 밀도 */
+#view-run .page-head, #view-verify .page-head, #view-settings .page-head { margin: 0 0 14px; align-items: center; }
+#view-run .page-head .muted, #view-verify .page-head .muted, #view-settings .page-head .muted { margin-bottom: 0; }
+#view-run .scope-wrap { justify-content: flex-end; }
+#view-run .run-kpis { margin: 4px 0 14px; padding: 0 0 14px; border-top: 0; border-bottom: 1px solid var(--grid); }
+#view-run .run-kpis .kpi { min-width: 0; }
+#view-run .detail-analysis { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(280px, 1fr); gap: 10px; align-items: stretch; margin-bottom: 10px; }
+#view-run .detail-analysis > .card { margin: 0; }
+#view-run .detail-analysis .turn-row { padding: .5rem 0; margin: 0; border: 0; border-bottom: 1px solid var(--grid); border-radius: 0; background: transparent; }
+#view-run .detail-analysis .turn-metrics { flex-wrap: wrap; }
+#view-verify .hero-card { border-left: 1px solid var(--border); }
+#view-verify .verify-verdict { font-size: 1.15rem; }
+#view-verify table, #view-run table, #view-settings table { font-variant-numeric: tabular-nums; }
+#view-verify tbody tr:hover, #view-run tbody tr:hover, #view-settings tbody tr:hover { background: var(--plane); }
+#view-settings .step-number { display: inline-grid; place-items: center; width: 1.5rem; height: 1.5rem; margin-right: .35rem; border-radius: 50%; background: var(--plane); color: var(--text-secondary); font-size: .78rem; }
+#view-settings .field-grid { grid-template-columns: minmax(0, 1fr); }
+#view-settings .field-grid input, #view-settings .field-grid select { width: 100%; min-height: 2.35rem; }
+#view-settings .condition-row { padding: .5rem 0; border-bottom: 1px solid var(--grid); }
+#view-settings .controls button[data-jobs-tab] { border-radius: 999px; }
+#view-settings .controls button[data-jobs-tab][aria-pressed="true"] { background: var(--plane); color: var(--text-primary); border-color: var(--border); font-weight: 600; }
+@media (max-width: 1050px) { #view-run .detail-analysis { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 900px) { #view-run .scope-wrap { justify-content: flex-start; } }
+.analysis-detail { margin-top: .8rem; padding-top: .7rem; border-top: 1px solid var(--grid); }
+.analysis-detail > summary { cursor: pointer; color: var(--text-secondary); font-size: .84rem; }
+#view-settings :disabled { opacity: .5; cursor: not-allowed; }
+@media (max-width: 1300px) {
+ #view-run .page-head { grid-template-columns: minmax(0, 1fr); }
+ #view-run .scope-wrap { justify-content: flex-start; }
+}
+/* 요청한 기록과 분석은 항상 펼쳐 표시한다. */
+.expanded-section > h2 { margin: 0 0 .65rem; }
+.expanded-section > .table-toolbar { margin-top: 0; }
+.analysis-detail > h3 { margin: 0 0 .4rem; }
+.scroll-x table, .table-scroll table { min-width: max-content; }
+/* 사이드바는 클릭 가능한 영역 전체를 둥글게 표시한다. */
+.tabs button { border-radius: 999px; padding: .65rem .9rem; }
+.tabs button:hover { background: var(--plane); }
+.tabs button[aria-selected="true"] { background: var(--plane); box-shadow: inset 3px 0 var(--series-1); }
+/* 핵심 차트 옆에는 상위 턴만, 긴 분석은 아래에 펼쳐 둔다. */
+#view-run .run-analysis-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+#view-run .run-analysis-grid > div { min-width: 0; }
+#view-run .run-analysis-grid h3 { margin-top: .35rem; }
+#view-run .run-analysis-grid .notes li { margin-bottom: .75rem; }
+#view-run .detail-analysis .turn-row { grid-template-columns: minmax(0, 1fr) auto; gap: .3rem .5rem; }
+#view-run .detail-analysis .turn-metrics { grid-column: 1 / -1; gap: 1.2rem; }
+#view-run .detail-analysis .turn-metrics .label { display: inline; margin-right: .3rem; }
+@media (max-width: 1050px) { #view-run .run-analysis-grid { grid-template-columns: minmax(0, 1fr); gap: 16px; } }
+/* 개요와 다른 화면의 페이지 제목·설명 위계를 맞춘다. */
+.preview-heading h2 { font-size: 1.3rem; margin: 0 0 .2rem; letter-spacing: -.01em; }
+.preview-heading p { font-size: .82rem; margin: 0; }
+@media (min-width: 901px) { .topbar > .tabs { margin-top: 24px; } }

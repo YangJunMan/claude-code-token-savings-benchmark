@@ -26,8 +26,8 @@ def test_settings_page_files_exist():
 
 def test_index_references_settings_js_and_style():
     html = INDEX_HTML.read_text(encoding="utf-8")
-    assert 'src="settings.js"' in html
-    assert 'href="style.css"' in html
+    assert 'src="settings.js?v=' in html
+    assert 'href="style.css?v=' in html
 
 
 def test_settings_js_api_base_matches_webapi_defaults():
