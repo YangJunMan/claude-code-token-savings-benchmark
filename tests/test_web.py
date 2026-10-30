@@ -21,8 +21,8 @@ def test_web_files_exist():
 
 def test_index_references_app_and_style():
     html = INDEX_HTML.read_text(encoding="utf-8")
-    assert 'src="app.js"' in html
-    assert 'href="style.css"' in html
+    assert 'src="app.js?v=' in html
+    assert 'href="style.css?v=' in html
 
 
 def test_app_js_csv_columns_match_publish_module():

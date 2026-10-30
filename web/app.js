@@ -545,7 +545,7 @@ function drawVerdict(data) {
   if (!clears.length) {
     verdict.textContent = "어떤 절약법도 확실한 효과가 확인되지 않았습니다";
     note.innerHTML = `일부 기법은 비용이 낮게 나왔지만, 아무 설정도 하지 않은 <strong>BASE</strong>끼리도 그만큼 결과가 흔들렸습니다.
-      아래 그래프에서 다른 기법의 점들이 <strong>BASE</strong>의 흔들림 범위 안에서 겹치는 것을 볼 수 있습니다.`;
+      <br>아래에서 기법별 차이와 실행별 비용 분포를 확인할 수 있습니다.`;
     return;
   }
   const names = clears.map((r) => `${r.condition} (비용 ${pct(r.cost)}, 토큰 사용량 ${pct(r.processed)})`);
@@ -639,10 +639,10 @@ function drawStrip(data) {
     ? [hasValid ? `<span><i class="swatch dot"></i>유효한 실행</span>` : "",
       hasExcluded ? `<span><i class="swatch dot hollow"></i>평균에서 제외된 실행 (참고용)</span>` : ""].join("")
     : `<span><i class="swatch dot"></i>실행 1회</span>
-    <span><i class="swatch bar"></i>평균</span><span><i class="swatch band"></i>BASE가 흔들린 범위</span>`;
+    <span><i class="swatch bar"></i>평균</span><span><i class="swatch band"></i>BASE 평균 ± 변동 지표</span>`;
   const known = knownConditions();
-  const conds = fallback ? known : known.filter((c) => runs.some((r) => r.condition === c));
-  const padL = 112, padR = 22, padT = 26, padB = 34, rowH = 74;
+  const conds = known;
+  const padL = 112, padR = 22, padT = 6, padB = 34, rowH = 52;
   const width = boxWidth("strip", 640);
   if (unchanged("strip", chartSignature(width, `${runs.length}/${fallback}/${cohortKey()}`))) return;
   const height = padT + padB + Math.max(1, conds.length) * rowH;
@@ -669,7 +669,7 @@ function drawStrip(data) {
     const lo = x(mean * (1 - n / 100)), hi = x(mean * (1 + n / 100));
     const band = el("rect", { x: lo, y: padT - 6, width: hi - lo, height: height - padB - padT + 6, rx: 6,
       fill: ink("--grid"), opacity: ".7" }, svg);
-    hoverable(band, `<b>BASE가 흔들린 범위</b><br>같은 설정으로 돌려도 비용이<br>평균의 ±${n.toFixed(1)}%만큼 달라졌습니다`);
+    hoverable(band, `<b>참고 띠: BASE 평균 ±${n.toFixed(1)}%</b><br>최근 BASE 묶음의 변동률 평균을 적용한 값입니다.<br>전체 실행의 최솟값·최댓값은 아닙니다.`);
   }
 
   drawFocusKeys("strip-keys", "strip", conds.filter((c) => runs.some((r) => r.condition === c)),
@@ -680,12 +680,14 @@ function drawStrip(data) {
     el("circle", { cx: 10, cy: yc, r: 5, fill: ink(role), "data-cond": cond }, svg);
     el("text", { x: 24, y: yc + 4, class: "mark-label", "data-cond": cond }, svg).textContent = cond;
     const mine = runs.filter((r) => r.condition === cond).sort((a, b) => String(a.run_date).localeCompare(String(b.run_date)));
+    const batches = new Set(mine.map((run) => run.run_date));
+    el("text", { x: 24, y: yc + 17, class: "tick", "data-cond": cond }, svg).textContent = `${fmt(mine.length)}건 · ${fmt(batches.size)}회`;
     if (!mine.length) {
       el("text", { x: padL + 8, y: yc + 4, class: "tick" }, svg).textContent = "이 과제의 실행 기록 없음";
       return;
     }
     mine.forEach((r, k) => {
-      const jitter = (((k * 37) % 11) - 5) / 5 * 20;
+      const jitter = (((k * 37) % 11) - 5) / 5 * 14;
       const dot = r.measurable
         ? el("circle", { cx: x(r.cost), cy: yc + jitter, r: 5, fill: ink(role), "fill-opacity": ".85",
           stroke: ink("--surface-1"), "stroke-width": 2, "data-cond": cond }, svg)
@@ -694,8 +696,8 @@ function drawStrip(data) {
     });
     if (fallback) return;
     const avg = mine.reduce((a, r) => a + r.cost, 0) / mine.length;
-    el("line", { x1: x(avg), y1: yc - 26, x2: x(avg), y2: yc + 26, stroke: ink("--surface-1"), "stroke-width": 7, "stroke-linecap": "round", "data-cond": cond }, svg);
-    const mark = el("line", { x1: x(avg), y1: yc - 26, x2: x(avg), y2: yc + 26, stroke: ink(role), "stroke-width": 3.5, "stroke-linecap": "round", "data-cond": cond }, svg);
+    el("line", { x1: x(avg), y1: yc - 19, x2: x(avg), y2: yc + 19, stroke: ink("--surface-1"), "stroke-width": 7, "stroke-linecap": "round", "data-cond": cond }, svg);
+    const mark = el("line", { x1: x(avg), y1: yc - 19, x2: x(avg), y2: yc + 19, stroke: ink(role), "stroke-width": 3.5, "stroke-linecap": "round", "data-cond": cond }, svg);
     hoverable(mark, `<b>${cond}</b> 평균<br>$${avg.toFixed(2)} · ${mine.length}건`);
   });
 }
@@ -733,18 +735,24 @@ function drawDelta(data) {
   METRICS.forEach(([key, label, role]) => {
     const item = document.createElement("span");
     const band = noise[key];
-    item.innerHTML = `<i class="swatch" style="background:${ink(role)}"></i>${label}${band != null ? ` (같은 설정 흔들림 ±${band.toFixed(1)}%)` : ""}`;
+    item.innerHTML = `<i class="swatch" style="background:${ink(role)}"></i>${label}${band != null ? ` · BASE ±${band.toFixed(1)}%` : ""}`;
     legend.appendChild(item);
   });
+  if (rows.length && (noise.cost != null || noise.processed != null)) {
+    const baseLegend = document.createElement("span");
+    baseLegend.innerHTML = `<i class="swatch band"></i>BASE 변동 범위`;
+    legend.appendChild(baseLegend);
+  }
 
   const width = boxWidth("delta", 720);
   const compact = width < 460;
-  const padL = compact ? 92 : 108;
+  const padL = 112;
   const padR = compact ? 52 : 76;
-  const padT = 24, padB = 28;
-  const rowH = 72, barH = 24, gap = 6;
+  const padT = 6, padB = 34;
+  const rowH = 52, barH = 17, gap = 3;
   if (unchanged("delta", chartSignature(width, `${rows.length}:${state.promptId}:${state.modelId}`))) return;
-  const height = padT + padB + Math.max(1, rows.length) * rowH;
+  const conditions = knownConditions();
+  const height = padT + padB + Math.max(1, conditions.length) * rowH;
   const svg = frame("delta", width, height);
   if (!rows.length) {
     el("text", { x: width / 2, y: height / 2, class: "tick", "text-anchor": "middle" }, svg).textContent =
@@ -755,29 +763,42 @@ function drawDelta(data) {
 
   const limit = Math.max(
     5, ...rows.flatMap((r) => [Math.abs(r.processed), Math.abs(r.cost)]),
-    noise.processed || 0, noise.cost || 0) * 1.15;
+    noise.processed || 0, noise.cost || 0) * 1.08;
   const span = Math.max(80, width - padL - padR);
   const zero = padL + span / 2;
   const x = (v) => zero + (v / limit) * (span / 2);
 
   el("line", { x1: zero, y1: padT - 8, x2: zero, y2: height - padB + 4, class: "axis-line" }, svg);
 
-  rows.forEach((row, i) => {
-    const top = padT + i * rowH;
-    const label = el("text", { x: padL - 8, y: top + rowH / 2 - 2, class: "mark-label", "text-anchor": "end" }, svg);
+  const baseIndex = conditions.indexOf("BASE");
+  if (baseIndex >= 0) {
+    const y = padT + baseIndex * rowH + rowH / 2;
+    el("circle", { cx: 10, cy: y, r: 5, fill: ink(conditionStyle("BASE").role) }, svg);
+    el("text", { x: 24, y: y + 4, class: "mark-label" }, svg).textContent = "BASE";
+    const baseRuns = data.runs.filter((run) => run.condition === "BASE" && run.measurable);
+    const baseBatches = new Set(baseRuns.map((run) => run.run_date));
+    el("text", { x: 24, y: y + 17, class: "tick" }, svg).textContent = `${fmt(baseRuns.length)}건 · ${fmt(baseBatches.size)}회`;
+    el("text", { x: padL + 8, y: y + 4, class: "tick" }, svg).textContent = "비교 기준";
+  }
+  rows.forEach((row) => {
+    const top = padT + conditions.indexOf(row.condition) * rowH;
+    const center = top + rowH / 2;
+    el("circle", { cx: 10, cy: center, r: 5, fill: ink(conditionStyle(row.condition).role) }, svg);
+    const label = el("text", { x: 24, y: center + 4, class: "mark-label" }, svg);
     label.textContent = row.condition;
-    const sub = el("text", { x: padL - 8, y: top + rowH / 2 + 13, class: "tick", "text-anchor": "end" }, svg);
+    const sub = el("text", { x: 24, y: center + 17, class: "tick" }, svg);
     sub.textContent = `${fmt(row.runs)}건 · ${fmt(row.batches)}회`;
 
     METRICS.forEach(([key, name, role], m) => {
       const value = row[key];
-      const y = top + 8 + m * (barH + gap);
+      const y = top + 5 + m * (barH + gap);
       const w = Math.abs(x(value) - zero);
       const saving = value < 0;
       const band = noise[key];
       if (band != null && band > 0) {
-        el("rect", { x: x(-band), y: y - 2, width: x(band) - x(-band), height: barH + 4,
-          rx: 3, fill: ink("--grid"), opacity: ".72" }, svg);
+        const visibleBand = band;
+        el("rect", { x: x(-visibleBand), y: y - 2, width: x(visibleBand) - x(-visibleBand), height: barH + 4,
+          rx: 3, fill: ink("--axis"), opacity: ".65" }, svg);
       }
       const path = el("path", {
         d: saving ? barLeft(zero, y, w, barH, 4) : barRight(zero, y, w, barH, 4),
@@ -788,7 +809,7 @@ function drawDelta(data) {
       const inside = w > 46;
       const t = el("text", {
         x: saving ? (inside ? zero - w + 6 : zero - w - 6) : (inside ? zero + w - 6 : zero + w + 6),
-        y: y + barH - 5,
+        y: y + barH - 3,
         class: inside ? "mark-label on-mark" : "mark-label",
         "text-anchor": saving === inside ? "start" : "end",
       }, svg);
@@ -800,7 +821,7 @@ function drawDelta(data) {
   left.textContent = "← BASE보다 절감";
   const right = el("text", { x: width - padR, y: height - 8, class: "tick", "text-anchor": "end" }, svg);
   right.textContent = "BASE보다 증가 →";
-  note.textContent = "막대 위에 마우스를 올리거나 터치하면 정확한 수치와 실행 건수를 볼 수 있습니다.";
+  note.textContent = "회색 범위 안의 차이는 효과로 구별하기 어렵습니다.";
 }
 
 function drawOverviewTable(data) {
@@ -1031,16 +1052,15 @@ function drawRunDelta(data) {
   const height = padT + parts.length * rowH + 10;
 
   const amount = `${Math.abs(processedPct).toFixed(1)}%`;
-  const howMuch = processedPct < 0 ? `${amount} 적게 썼` : `${amount} 더 썼`;
+  const direction = processedPct < 0 ? "감소" : processedPct > 0 ? "증가" : "차이 없음";
+  const comparison = processedPct === 0 ? "BASE 대비 토큰 차이 없음" : `BASE 대비 토큰 ${amount} ${direction}`;
   const summaryConclusion = noise != null
-    ? (inNoise
-      ? `최근 BASE보다 토큰을 ${howMuch}지만, 같은 설정끼리의 흔들림 폭 안이라 효과로 보기 어렵습니다`
-      : `최근 BASE보다 토큰을 ${howMuch}고, 이날의 흔들림 폭을 넘었습니다`)
-    : `최근 BASE보다 토큰을 ${howMuch}습니다`;
+    ? `${comparison} · ${inNoise ? "변동 폭 안" : "변동 폭 초과"}`
+    : `${comparison} · 변동 폭 미측정`;
 
   box.innerHTML = `
-    <p class="verdict run-verdict ${total < 0 ? "good" : "bad"}">${summaryConclusion}</p>
-    <p class="hero-note">다시 읽히며 청구된 문맥 합계가 <strong>${fmt(run.observed)}</strong> 토큰으로, 최근 <code>BASE</code> 평균(${fmt(base.observed)} 토큰)보다 <strong>${signed(total)}</strong> 토큰 ${total < 0 ? "적었습니다" : "많았습니다"}. 대화 횟수는 ${base.turns.toFixed(1)}턴에서 ${fmt(run.turns)}턴이 되었습니다.${noise != null ? ` 이날 같은 <code>BASE</code> 실행끼리의 흔들림 폭(noise floor)은 ±${noise.toFixed(1)}%였습니다.` : ""}</p>
+    <p class="verdict run-verdict ${noise == null || inNoise ? "" : (total < 0 ? "good" : "bad")}">${summaryConclusion}</p>
+    <p class="hero-note">다시 읽히며 청구된 문맥 합계가 <strong>${fmt(run.observed)}</strong> 토큰으로, 최근 <code>BASE</code> 평균(${fmt(base.observed)} 토큰)보다 <strong>${signed(total)}</strong> 토큰 ${total < 0 ? "적었습니다" : "많았습니다"}.<br>대화 횟수는 ${base.turns.toFixed(1)}턴에서 ${fmt(run.turns)}턴이 되었습니다.${noise != null ? `<br>이날 같은 <code>BASE</code> 실행끼리의 흔들림 폭(noise floor)은 ±${noise.toFixed(1)}%였습니다.` : ""}</p>
     <div class="chart run-delta-chart"><svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"
       role="img" aria-label="BASE 대비 항목별 토큰 차이">
       <line x1="${zero}" y1="${padT}" x2="${zero}" y2="${height - 6}" class="axis-line"></line>
@@ -1124,6 +1144,8 @@ function turnRow(row, run, lead) {
 function drawTopTurns(data) {
   const box = document.getElementById("top-turns");
   if (!box) return;
+  const stories = document.getElementById("turn-stories");
+  if (stories) stories.innerHTML = "";
   const run = data.runs.find((r) => r.key === state.runId);
   if (!run) { box.innerHTML = `<p class="empty">실행을 선택해 주세요.</p>`; return; }
   const top = [...run.rows]
@@ -1134,17 +1156,8 @@ function drawTopTurns(data) {
     box.innerHTML = `<p class="sub">이 실행에는 반복 청구 토큰(context tax)이 기록된 턴이 없습니다.</p>`;
     return;
   }
-  const head = top[0];
-  const early = num(head.turn) <= Math.ceil(run.turns / 3);
-  box.innerHTML = `<p class="muted">가장 많은 누적 비용을 만든 단계는 <strong>턴 ${head.turn}</strong>입니다.
-    ${early
-      ? "실행 초반에 큰 내용이 들어오면서 이후 끝날 때까지 매 턴 반복해서 읽혔습니다."
-      : "실행 후반이라 남은 턴이 적었는데도 상위에 올랐을 만큼 한 번에 들어온 내용이 컸습니다."}</p>
-    ${top.map((r, i) => turnRow(r, run, i === 0)).join("")}
-    <details class="turn-detail">
-      <summary>턴별 상세 설명 펼치기</summary>
-      <ul class="notes">${top.map((r) => turnStory(r, run)).join("")}</ul>
-    </details>`;
+  box.innerHTML = top.map((r, i) => turnRow(r, run, i === 0)).join("");
+  if (stories) stories.innerHTML = `<ul class="notes">${top.map((r) => turnStory(r, run)).join("")}</ul>`;
 }
 
 function drawReport(data) {
@@ -1897,3 +1910,30 @@ if (typeof document !== "undefined") boot();
 if (typeof module !== "undefined" && module.exports) {
   module.exports = { parseCsv, toRecords, summarizeByCondition, CSV_COLUMNS, state, buildRuns, comparisonRows };
 }
+
+// 로컬 시안의 차트 전환: 숨겨진 그래프도 열릴 때 실제 너비로 다시 그린다.
+(function setupChartTabs() {
+  if (typeof document === "undefined") return;
+  const tabs = [...document.querySelectorAll('.chart-tabs [role="tab"]')];
+  function select(tab) {
+    if (tab.getAttribute('aria-selected') === 'true') return;
+    tabs.forEach((item) => {
+      const active = item === tab;
+      item.setAttribute('aria-selected', String(active));
+      item.tabIndex = active ? 0 : -1;
+      document.getElementById(item.getAttribute('aria-controls')).hidden = !active;
+    });
+    const data = corpus();
+    if (tab.id === 'tab-delta') drawDelta(data);
+    else drawStrip(data);
+  }
+  tabs.forEach((tab, i) => {
+    tab.addEventListener('click', () => select(tab));
+    tab.addEventListener('keydown', (event) => {
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+      event.preventDefault();
+      const next = tabs[(i + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length];
+      select(next); next.focus();
+    });
+  });
+})();

@@ -570,8 +570,13 @@ function main() {
   document.getElementById("ac-submit-btn").addEventListener("click", onSubmitAddCondition);
   updateInjectionFieldVisibility();
   const badge = document.getElementById("settings-availability");
+  const apiControls = ["add-condition-btn", "plan-btn", "timeout-seconds", "prompt-preset", "prompt-path"]
+    .map((id) => document.getElementById(id));
+  const setApiControls = (available) => apiControls.forEach((control) => { control.disabled = !available; });
+  setApiControls(false);
   loadConditions()
     .then(() => {
+      setApiControls(true);
       badge.className = "chip ok";
       badge.textContent = `로컬 API 연결됨 · ${API_BASE}`;
       refreshStatus();
