@@ -9,7 +9,7 @@
 <meta property="og:description" content="어떤 절약법도 같은 설정끼리의 흔들림 폭을 넘는 확실한 효과가 확인되지 않았습니다.">
 <meta property="og:type" content="website">
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect x='3' y='12' width='4' height='9' rx='1' fill='%232a78d6'/><rect x='10' y='7' width='4' height='14' rx='1' fill='%232a78d6'/><rect x='17' y='3' width='4' height='18' rx='1' fill='%232a78d6'/></svg>">
-<link rel="stylesheet" href="style.css?v=20261030">
+<link rel="stylesheet" href="style.css?v=20261031">
 
 <script>
 (function() {
@@ -71,22 +71,27 @@
 
   <div class="grid12 overview-main">
     <section class="card chart-panel">
-      <h2>기법별 비교</h2>
+      <div class="chart-header">
+        <div id="heading-delta">
+          <h2>BASE 대비 증감률</h2>
+          <p class="muted">왼쪽은 절감, 오른쪽은 증가입니다.</p>
+        </div>
+        <div id="heading-strip" hidden>
+          <h2>실행 하나하나의 비용</h2>
+          <p class="muted" id="strip-intro">점: 실행 1회 · 띠: BASE 평균 ± 변동 지표</p>
+        </div>
       <div class="chart-tabs" role="tablist" aria-label="비교 그래프 선택">
         <button type="button" id="tab-delta" role="tab" aria-selected="true" aria-controls="chart-delta">BASE 대비 증감률</button>
         <button type="button" id="tab-strip" role="tab" aria-selected="false" aria-controls="chart-strip" tabindex="-1">실행별 비용</button>
       </div>
+      </div>
   <section id="chart-delta" class="delta-card" role="tabpanel" aria-labelledby="tab-delta">
-    <h2>BASE 대비 증감률</h2>
-    <p class="muted">왼쪽은 절감, 오른쪽은 증가입니다.</p>
     <div class="legend" id="delta-legend"></div>
     <div class="chart"><svg id="delta" role="img" aria-label="기법별 BASE 대비 평균 차이"></svg></div>
     <p class="note" id="delta-note"></p>
   </section>
 
     <section id="chart-strip" class="strip-card" role="tabpanel" aria-labelledby="tab-strip" hidden>
-      <h2>실행 하나하나의 비용</h2>
-      <p class="muted" id="strip-intro">점은 실행 1회, 회색 띠는 BASE 평균에 변동 지표를 적용한 참고 범위입니다.</p>
       <div class="legend" id="strip-legend"></div>
       <div class="chart"><svg id="strip" role="img" aria-label="기법별 실행 비용 분포"></svg></div>
       <div class="legend trend-legend" id="strip-keys" aria-label="기법에 마우스를 올리면 그 기법만 강조합니다"></div>
@@ -416,7 +421,7 @@
 
 </div>
 <div class="tooltip" id="tip" role="status" aria-live="polite"></div>
-<script src="app.js?v=20261030"></script>
+<script src="app.js?v=20261031"></script>
 <script src="settings.js?v=20261030"></script>
 </body>
 </html>

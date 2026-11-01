@@ -752,7 +752,11 @@ button:focus-visible, select:focus-visible, summary:focus-visible { outline:2px 
 /* 같은 위치에서 비교 관점을 전환한다. */
 .overview-main > .chart-panel { grid-column: 1; grid-row: 1; min-width: 0; }
 .overview-main > .methods { grid-column: 2; grid-row: 1; }
-.chart-tabs { display: inline-flex; flex-wrap: wrap; gap: 3px; margin: 8px 0 12px; padding: 3px; background: var(--plane); border: 1px solid var(--border); border-radius: 7px; }
+.chart-header { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 8px 16px; margin-bottom: 8px; }
+.chart-header > div:first-child, .chart-header > div:nth-child(2) { min-width: 0; flex: 1 1 220px; }
+.chart-header h2 { margin: 0 0 .3rem; }
+.chart-header .muted { margin: 0; }
+.chart-tabs { display: inline-flex; flex-wrap: wrap; gap: 3px; margin: 0 0 0 auto; padding: 3px; background: var(--plane); border: 1px solid var(--border); border-radius: 7px; }
 .chart-tabs button { border: 0; border-radius: 4px; padding: .4rem .7rem; color: var(--text-secondary); background: transparent; font-size: .82rem; }
 .chart-tabs button[aria-selected="true"] { color: var(--text-primary); background: var(--surface-1); font-weight: 600; }
 .chart-tabs button:hover { color: var(--text-primary); }
@@ -786,16 +790,13 @@ button, select { transition: background-color .15s ease, border-color .15s ease,
 }
 /* 전환 중 그래프 영역의 크기를 유지하고 제목·설명·범례 순서를 통일한다. */
 .chart-panel [role="tabpanel"] { min-height: 0; animation: chart-enter .18s ease-out; }
-.chart-panel [role="tabpanel"] > h2 { margin: 0 0 .3rem; }
-.chart-panel [role="tabpanel"] > .muted { margin: 0 0 .5rem; }
 .chart-panel [role="tabpanel"] > .legend { justify-content: flex-start; margin: 0; min-height: 1.4rem; }
 .chart-panel [role="tabpanel"] > .chart { min-height: 300px; padding-top: 0; }
 .chart-panel [role="tabpanel"] > .trend-legend { margin: .5rem 0 0; }
 @keyframes chart-enter { from { opacity: .45; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .chart-panel [role="tabpanel"] { animation: none; } }
-.chart-panel { min-height: 544px; }
+.chart-panel { min-height: 480px; }
 /* 전환할 때 그래프와 기법 이름의 시작 위치를 맞춘다. */
-.chart-panel [role="tabpanel"] > .muted { min-height: 1.5em; }
 .chart-panel [role="tabpanel"] > .legend { min-height: 1.4rem; align-content: start; }
 /* 실행 상세, 결과 검증, 실험 설정 공통 정보 밀도 */
 #view-run .page-head, #view-verify .page-head, #view-settings .page-head { margin: 0 0 14px; align-items: center; }
