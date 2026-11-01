@@ -1922,6 +1922,7 @@ if (typeof module !== "undefined" && module.exports) {
       item.setAttribute('aria-selected', String(active));
       item.tabIndex = active ? 0 : -1;
       document.getElementById(item.getAttribute('aria-controls')).hidden = !active;
+      document.getElementById(item.id.replace('tab-', 'heading-')).hidden = !active;
     });
     const data = corpus();
     if (tab.id === 'tab-delta') drawDelta(data);
