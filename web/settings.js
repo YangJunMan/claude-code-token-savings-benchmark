@@ -4,6 +4,26 @@
 
 const API_BASE = "http://127.0.0.1:8787";
 
+// 로컬 API는 저장소를 내려받아 `token_bench serve`를 띄운 컴퓨터에만 있다.
+// GitHub Pages 같은 공개 주소에서 127.0.0.1을 부르면 방문자 브라우저 콘솔에
+// ERR_CONNECTION_REFUSED만 남으므로, 페이지가 로컬에서 열렸을 때만 부른다.
+// 빈 hostname은 file://로 index.html을 직접 연 경우라 로컬로 본다.
+const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1", "[::1]", ""]);
+
+/**
+ * 이 hostname에서 열린 페이지가 로컬 API를 불러도 되는지 판정한다.
+ * @param {string} hostname location.hostname 값
+ * @returns {boolean} 로컬(localhost/127.0.0.1/::1/file://)이면 true
+ */
+function isLocalApiHost(hostname) {
+  if (typeof hostname !== "string") return false;
+  return LOCAL_HOSTNAMES.has(hostname.toLowerCase());
+}
+
+function canUseLocalApi() {
+  return typeof location !== "undefined" && isLocalApiHost(location.hostname);
+}
+
 let currentPlan = null;
 let currentPlanPath = null;
 let lastJobsJson = null;
@@ -345,6 +365,7 @@ function renderJobsTable() {
 }
 
 async function refreshStatus() {
+  if (!canUseLocalApi()) return;
   // 다른 탭을 보고 있으면 폴링하지 않는다.
   const view = document.getElementById("view-settings");
   if (view && view.hidden) return;
@@ -531,6 +552,20 @@ function closeAddConditionModal() {
   resetAddConditionForm();
 }
 
+/* 로컬 API를 쓸 수 없을 때 실험 설정 탭에 정적 아카이브 안내를 띄운다.
+   hintHtml은 이 파일 안의 고정 문구만 넘긴다(사용자 입력을 넣지 않는다). */
+function showStaticArchiveNotice(hintHtml) {
+  document.getElementById("condition-list").innerHTML = `
+    <div class="archive-box">
+      <p><strong>이 관측소는 측정이 완료된 정적 아카이브입니다.</strong></p>
+      <p class="muted">${hintHtml}</p>
+    </div>
+  `;
+  const badge = document.getElementById("settings-availability");
+  badge.className = "chip";
+  badge.textContent = "정적 아카이브 (읽기 전용)";
+}
+
 function main() {
   document.getElementById("plan-btn").addEventListener("click", onPlan);
   document.getElementById("submit-btn").addEventListener("click", onSubmit);
@@ -574,6 +609,12 @@ function main() {
     .map((id) => document.getElementById(id));
   const setApiControls = (available) => apiControls.forEach((control) => { control.disabled = !available; });
   setApiControls(false);
+  if (!canUseLocalApi()) {
+    showStaticArchiveNotice(
+      "실험 설정은 저장소를 내려받아 로컬에서 서버(<code>token_bench serve</code>)를 띄운 경우에만 쓸 수 있습니다."
+    );
+    return;
+  }
   loadConditions()
     .then(() => {
       setApiControls(true);
@@ -583,14 +624,10 @@ function main() {
       setInterval(refreshStatus, 3000);
     })
     .catch((err) => {
-      document.getElementById("condition-list").innerHTML = `
-        <div class="archive-box">
-          <p><strong>이 관측소는 측정이 완료된 정적 아카이브입니다.</strong></p>
-          <p class="muted">새 실험을 등록하거나 조건을 추가하려면 로컬 CLI(<code>token_bench serve</code>)를 실행하세요.</p>
-        </div>
-      `;
-      badge.className = "chip";
-      badge.textContent = "정적 아카이브 (읽기 전용)";
+      console.info(`로컬 API(${API_BASE})에 연결하지 못했다: ${err.message}`);
+      showStaticArchiveNotice(
+        "새 실험을 등록하거나 조건을 추가하려면 로컬 CLI(<code>token_bench serve</code>)를 실행하세요."
+      );
     });
 
   // 탭을 펼친 순간 바로 최신 상태를 보여 준다(다음 폴링까지 기다리지 않도록).
@@ -607,5 +644,5 @@ if (typeof document !== "undefined") {
 }
 
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { selectedConditionIds, API_BASE };
+  module.exports = { selectedConditionIds, isLocalApiHost, API_BASE };
 }
