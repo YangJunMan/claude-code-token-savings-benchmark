@@ -1,5 +1,10 @@
+import json
 import re
+import shutil
+import subprocess
 from pathlib import Path
+
+import pytest
 
 from token_bench.webapi import DEFAULT_HOST, DEFAULT_PORT
 
@@ -101,3 +106,33 @@ def test_unavailable_condition_links_to_its_official_repository():
     assert "repository.href = c.repository_url" in js_source
     assert 'repository.target = "_blank"' in js_source
     assert 'repository.rel = "noopener noreferrer"' in js_source
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node가 설치되어 있지 않다.")
+def test_local_api_is_only_called_from_a_local_host():
+    """GitHub Pages 같은 공개 주소에서는 127.0.0.1 API를 부르지 않는다.
+
+    부르면 방문자 콘솔에 ERR_CONNECTION_REFUSED가 남는다. 로컬(serve·file://)은 그대로 부른다.
+    """
+    script = f"""
+    const assert = require('node:assert/strict');
+    const {{ isLocalApiHost }} = require({json.dumps(str(SETTINGS_JS))});
+    for (const host of ['localhost', '127.0.0.1', '::1', '[::1]', '', 'LOCALHOST']) {{
+      assert.equal(isLocalApiHost(host), true, host);
+    }}
+    for (const host of ['yangjunman.github.io', 'example.com', '127.0.0.1.nip.io', 'localhost.evil.com', undefined, null]) {{
+      assert.equal(isLocalApiHost(host), false, String(host));
+    }}
+    """
+    result = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stderr
+
+
+def test_settings_js_checks_the_host_before_calling_the_local_api():
+    js_source = SETTINGS_JS.read_text(encoding="utf-8")
+    main_fn = re.search(r"function main\(\)\s*{(.*?)\n}", js_source, re.DOTALL)
+    assert main_fn, "main 함수를 찾지 못했다."
+    body = main_fn.group(1)
+    assert body.index("if (!canUseLocalApi())") < body.index("loadConditions()")
+    status_fn = re.search(r"async function refreshStatus\(\)\s*{(.*?)\n}", js_source, re.DOTALL)
+    assert status_fn and "if (!canUseLocalApi()) return;" in status_fn.group(1)
