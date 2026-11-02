@@ -712,7 +712,7 @@ button:focus-visible, select:focus-visible, summary:focus-visible { outline:2px 
 }
 @media (max-width: 640px) { .kpi-strip { grid-template-columns:repeat(2,minmax(0,1fr)); } .methods .method-list { grid-template-columns:1fr; } }
 /* 두 차트는 같은 열에 배치하고 오른쪽에 기법 설명을 둔다. */
-.overview-main { grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr); align-items: stretch; }
+.overview-main { grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr); align-items: start; }
 .overview-main > .delta-card { grid-column: 1; grid-row: 1; }
 .overview-main > .strip-card { grid-column: 1; grid-row: 2; }
 .overview-main > .methods { grid-column: 2; grid-row: 1 / span 2; }
@@ -795,7 +795,7 @@ button, select { transition: background-color .15s ease, border-color .15s ease,
 .chart-panel [role="tabpanel"] > .trend-legend { margin: .5rem 0 0; }
 @keyframes chart-enter { from { opacity: .45; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .chart-panel [role="tabpanel"] { animation: none; } }
-.chart-panel { min-height: 480px; }
+
 /* 전환할 때 그래프와 기법 이름의 시작 위치를 맞춘다. */
 .chart-panel [role="tabpanel"] > .legend { min-height: 1.4rem; align-content: start; }
 /* 실행 상세, 결과 검증, 실험 설정 공통 정보 밀도 */
@@ -804,7 +804,7 @@ button, select { transition: background-color .15s ease, border-color .15s ease,
 #view-run .scope-wrap { justify-content: flex-end; }
 #view-run .run-kpis { margin: 4px 0 14px; padding: 0 0 14px; border-top: 0; border-bottom: 1px solid var(--grid); }
 #view-run .run-kpis .kpi { min-width: 0; }
-#view-run .detail-analysis { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(280px, 1fr); gap: 10px; align-items: stretch; margin-bottom: 10px; }
+#view-run .detail-analysis { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(280px, 1fr); gap: 10px; align-items: start; margin-bottom: 10px; }
 #view-run .detail-analysis > .card { margin: 0; }
 #view-run .detail-analysis .turn-row { padding: .5rem 0; margin: 0; border: 0; border-bottom: 1px solid var(--grid); border-radius: 0; background: transparent; }
 #view-run .detail-analysis .turn-metrics { flex-wrap: wrap; }
@@ -849,3 +849,11 @@ button, select { transition: background-color .15s ease, border-color .15s ease,
 .preview-heading h2 { font-size: 1.3rem; margin: 0 0 .2rem; letter-spacing: -.01em; }
 .preview-heading p { font-size: .82rem; margin: 0; }
 @media (min-width: 901px) { .topbar > .tabs { margin-top: 24px; } }
+
+.related-links { display: grid; gap: .45rem; padding: 0 .8rem; }
+.related-links h2 { margin: 0 0 .15rem; color: var(--text-muted); font-size: .78rem; }
+.related-links a { color: var(--text-secondary); font-size: .8rem; line-height: 1.4; text-decoration: none; }
+.related-links a:hover { color: var(--series-1); text-decoration: underline; }
+.related-links a:focus-visible { outline: 2px solid var(--series-1); outline-offset: 2px; }
+.summary-band .hero-compact { align-self: center; }
+@media (max-width: 900px) { .related-links { padding: 0 .65rem; } }
