@@ -5,7 +5,9 @@
 
 Claude Code에 똑같은 개발 과제를 여러 번 시키면서, 토큰 절약 기법 4가지(`BE_BRIEF`, `CAVEMAN-FULL`, `HEADROOM`, `RTK`)가 아무 설정도 하지 않은 `BASE`보다 비용과 토큰을 실제로 줄여 주는지 직접 실험해 비교한 프로젝트입니다.
 
-**[결과 대시보드 바로 보기](https://yangjunman.github.io/claude-code-token-savings-benchmark/)**
+[![결과 대시보드 바로 보기](https://img.shields.io/badge/결과_대시보드-바로_보기-2a78d6?style=for-the-badge)](https://yangjunman.github.io/claude-code-token-savings-benchmark/)
+
+127회 실행 결과와 최종 판정 **「효과 미확인」**, 기법별 비용 비교를 확인하세요.
 
 ![결과 대시보드 첫 화면](docs/images/dashboard-overview.png)
 
