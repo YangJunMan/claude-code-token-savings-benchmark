@@ -555,12 +555,37 @@ function closeAddConditionModal() {
 /* 로컬 API를 쓸 수 없을 때 실험 설정 탭에 정적 아카이브 안내를 띄운다.
    hintHtml은 이 파일 안의 고정 문구만 넘긴다(사용자 입력을 넣지 않는다). */
 function showStaticArchiveNotice(hintHtml) {
+  // 빈 카드 대신 이 아카이브에 실제로 기록된 기법을 읽기 전용으로 보여 준다.
+  // 이름은 개요 화면의 "비교한 기법" 목록(고정 HTML)에서 가져오고, 색은 데이터를 읽은 뒤 app.js가 칠한다.
+  const methods = [...document.querySelectorAll("#method-list .method-item")].map((item) => {
+    const tag = item.querySelector(".treatment-tag");
+    const kind = item.querySelector(".method-kind");
+    return `<li><span class="treatment-tag">${tag.textContent}</span>
+      <span class="muted">${kind ? kind.textContent : ""}</span></li>`;
+  }).join("");
   document.getElementById("condition-list").innerHTML = `
+    ${methods ? `<ul class="static-methods">${methods}</ul>` : ""}
     <div class="archive-box">
-      <p><strong>이 관측소는 측정이 완료된 정적 아카이브입니다.</strong></p>
+      <p><strong>이 관측소는 측정이 끝난 정적 아카이브입니다.</strong></p>
       <p class="muted">${hintHtml}</p>
+      <pre class="run-cmd"><code>./quickstart.sh   # Windows: .\\quickstart.ps1</code></pre>
     </div>
   `;
+  document.getElementById("add-condition-btn").hidden = true;
+  // 공개 사이트에서는 쓸 수 없는 입력 칸과 빈 작업 표 대신, 2번 카드를 "로컬에서 실행하기" 안내로 바꾼다.
+  const view = document.getElementById("view-settings");
+  view.classList.add("static-mode");
+  const stepTwo = document.getElementById("plan-btn").closest(".card");
+  const guide = document.querySelector("#condition-list .archive-box");
+  if (stepTwo && guide && !stepTwo.querySelector(".archive-box")) {
+    const title = stepTwo.querySelector("h2");
+    const label = [...title.childNodes].find((n) => n.nodeType === 3 && n.textContent.trim());
+    if (label) label.textContent = " 로컬에서 실행하기";
+    title.querySelector(".info-dot")?.classList.add("tier-hidden"); // 입력 칸 설명은 이 모드에서 해당 없음
+    stepTwo.appendChild(guide);
+  }
+  const tbody = document.querySelector("#jobs-table tbody");
+  tbody.innerHTML = `<tr class="empty-row"><td colspan="5">로컬 서버에 연결되지 않아 등록된 작업이 없습니다.</td></tr>`;
   const badge = document.getElementById("settings-availability");
   badge.className = "chip";
   badge.textContent = "정적 아카이브 (읽기 전용)";

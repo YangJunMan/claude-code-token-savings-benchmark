@@ -179,7 +179,8 @@ function showTip(event, html) {
 function hideTip() { if (tip) tip.classList.remove("on"); }
 
 function hoverable(node, html) {
-  node.addEventListener("mousemove", (e) => showTip(e, html));
+  // ⓘ 안내창 전용 폭(info)은 여기서 뗀다. 사라지는 도중에 떼면 폭이 바뀌며 글자가 다시 접힌다.
+  node.addEventListener("mousemove", (e) => { if (tip) tip.classList.remove("info"); showTip(e, html); });
   node.addEventListener("mouseleave", hideTip);
 }
 
@@ -252,7 +253,7 @@ function targetPhrase(row, limit = 2) {
 const DASHES = ["", "7 3", "2 3", "9 3 2 3"];
 function seriesStyle(index) {
   return {
-    role: `--series-${(index % 5) + 1}`,
+    role: `--cond-${(index % 5) + 1}`,
     dash: DASHES[Math.floor(index / 5) % DASHES.length],
   };
 }
@@ -566,6 +567,15 @@ function drawScope(data) {
     `회차 <b>${fmt(data.batches.length)}회</b>`,
     ...(last ? [`마지막 측정 ${last}`] : []),
   ].map((text) => `<span class="chip">${text}</span>`).join("");
+  const tiles = document.getElementById("verify-tiles");
+  if (tiles) {
+    tiles.innerHTML = [
+      ["비교 기법", `${fmt(conditions.size)}종`],
+      ["실행", `${fmt(data.runs.length)}건`],
+      ["회차", `${fmt(data.batches.length)}회`],
+      ["마지막 측정", last || "—"],
+    ].map(([label, value]) => `<div class="kpi-tile"><div class="kpi-label">${label}</div><div class="kpi-value">${value}</div></div>`).join("");
+  }
   ["scope-overview", "scope-verify"].forEach((id) => {
     const box = document.getElementById(id);
     if (box) box.innerHTML = chips;
@@ -605,9 +615,19 @@ function drawKpiStrip(data) {
     unclear: "모든 기법이 흔들림 폭 안",
     clear: `${verdict.clears.map((r) => r.condition).join(", ")}이(가) 흔들림 폭 밖`,
   }[verdict.kind];
+  // 판정은 상태 배지가 이미 말한다. 지표 칸은 그 판정의 근거(가장 큰 절감 vs 흔들림 폭)를 보여 준다.
+  const best = [...data.rows].sort((a, b) => a.cost - b.cost)[0];
+  const evidence = best && noiseKnown(data.noise)
+    ? [
+      [`${best.cost < 0 ? "가장 큰 비용 절감" : "가장 작은 비용 증가"} · ${best.condition}`, pct(best.cost), beatsNoise(best, data.noise) ? "흔들림 폭 밖" : "흔들림 폭 안", "lead"],
+      ["BASE끼리 흔들림 폭", `±${data.noise.cost.toFixed(1)}%`, "같은 설정을 반복했을 때의 비용 차이", ""],
+    ]
+    : [
+      ["판정", verdict.label, verdictSub, verdict.kind === "none" ? "muted-tile" : "neutral"],
+      ["비교 기법", `${conditions.size}종`, conditions.has("BASE") ? "BASE 포함" : "BASE 없음", ""],
+    ];
   const tiles = [
-    ["판정", verdict.label, verdictSub, verdict.kind === "none" ? "muted-tile" : "neutral"],
-    ["비교 기법", `${conditions.size}종`, conditions.has("BASE") ? "BASE 포함" : "BASE 없음", ""],
+    ...evidence,
     ["실험 규모", `${data.runs.length}건`, `${data.batches.length}회차`, ""],
     ["기록된 비용 합계", `$${total.toFixed(2)}`, "모든 실행의 API 환산 비용", ""],
   ];
@@ -617,7 +637,53 @@ function drawKpiStrip(data) {
     pill.classList.toggle("is-muted", verdict.kind === "none");
   }
   box.innerHTML = tiles.map(([label, value, sub, tone]) =>
-    `<div class="kpi-tile ${tone}"><div class="kpi-label">${label}</div><div class="kpi-value">${value}</div><div class="kpi-sub">${sub}</div></div>`).join("");
+    // 보조 문구는 다른 화면의 숫자 카드와 높이를 맞추려고 마우스를 올리면 보이게 한다.
+    `<div class="kpi-tile ${tone}" title="${escapeHtml(sub)}"><div class="kpi-label">${label}</div><div class="kpi-value">${value}</div></div>`).join("");
+}
+
+/* 차트 옆 판정 카드: 기법마다 비용 차이를 흔들림 폭(세로선)과 나란히 놓는다.
+   숫자는 차트가 이미 보여 주므로, 여기서는 "선을 넘었나"만 읽히게 한다. */
+function drawJudge(data) {
+  const list = document.getElementById("judge-list");
+  if (!list) return;
+  const known = noiseKnown(data.noise);
+  const band = known ? data.noise.cost : null;
+  const scale = Math.max(1, band || 0, ...data.rows.map((r) => Math.abs(r.cost))) * 1.15;
+  const byCondition = new Map(data.rows.map((r) => [r.condition, r]));
+  list.innerHTML = "";
+  knownConditions().forEach((condition) => {
+    const row = byCondition.get(condition);
+    const li = document.createElement("li");
+    li.className = "judge-item";
+    let chip, tone = "neutral", gauge = "";
+    if (condition === "BASE") chip = "비교 기준";
+    else if (!row) { chip = "기록 없음"; tone = "muted"; }
+    else if (!known) chip = "판정 보류";
+    else if (beatsNoise(row, data.noise)) { chip = row.cost < 0 ? "절감 확인" : "증가 확인"; tone = row.cost < 0 ? "good" : "bad"; }
+    else chip = "흔들림 폭 안";
+    if (row) {
+      const fill = Math.min(100, Math.abs(row.cost) / scale * 100);
+      const line = band != null ? `<i class="judge-line" style="left:${(band / scale * 100).toFixed(1)}%"></i>` : "";
+      gauge = `<div class="judge-gauge" aria-hidden="true"><i class="judge-fill ${row.cost < 0 ? "good" : "bad"}" style="width:${fill.toFixed(1)}%"></i>${line}</div>
+        <span class="judge-value">${pct(row.cost)}</span>`;
+    }
+    li.innerHTML = `<div class="judge-top"><span class="judge-name"><i class="dot" style="background:var(${conditionStyle(condition).role})"></i>${escapeHtml(condition)}</span><span class="judge-chip ${tone}">${chip}</span></div>
+      ${gauge ? `<div class="judge-bar">${gauge}</div>` : `<div class="judge-bar judge-empty">${condition === "BASE" ? "다른 기법을 이 값과 비교합니다" : "이 과제·모델의 실행이 없습니다"}</div>`}`;
+    const info = methodInfo(condition);
+    if (info) { li.style.cursor = "help"; hoverable(li, info); }
+    list.appendChild(li);
+  });
+  const note = document.getElementById("judge-note");
+  if (note && band != null) note.textContent = `막대는 비용 차이, 세로선은 BASE끼리 흔들림 폭(±${band.toFixed(1)}%)입니다. 선을 넘어야 효과로 봅니다.`;
+}
+
+/* "비교한 기법" 목록의 이름 색을 그래프의 기법 색과 맞춘다. 한 기법은 어디서나 한 색이다. */
+function colorMethodTags() {
+  document.querySelectorAll("#method-list .treatment-tag, .static-methods .treatment-tag").forEach((tag) => {
+    const known = knownConditions().includes(tag.textContent.trim());
+    tag.style.setProperty("--tag-color", known ? `var(${conditionStyle(tag.textContent.trim()).role})` : "");
+    tag.classList.toggle("series-colored", known);
+  });
 }
 
 /* 기법별 실행 비용을 점 하나 = 실행 1회로 보여 준다. BASE가 흔들린 범위(회색 띠)와
@@ -723,7 +789,8 @@ function drawCorpusKpis(data) {
   });
 }
 
-const METRICS = [["cost", "비용", "--series-5"], ["processed", "토큰 사용량", "--series-1"]];
+// 증감률은 극성이 뜻이다: 절감은 초록, 증가는 빨강. 비용은 진한 막대, 토큰은 연한 막대.
+const METRICS = [["cost", "비용", "1"], ["processed", "토큰", ".42"]];
 
 function drawDelta(data) {
   const { rows, noise } = data;
@@ -732,10 +799,14 @@ function drawDelta(data) {
   if (!legend || !note) return;
   legend.innerHTML = "";
   legend.hidden = !rows.length;
-  METRICS.forEach(([key, label, role]) => {
+  const polarity = document.createElement("span");
+  polarity.innerHTML = `<i class="swatch" style="background:${ink("--good")}"></i>절감
+    <i class="swatch" style="background:${ink("--critical")};margin-left:8px"></i>증가`;
+  legend.appendChild(polarity);
+  METRICS.forEach(([key, label, alpha]) => {
     const item = document.createElement("span");
     const band = noise[key];
-    item.innerHTML = `<i class="swatch" style="background:${ink(role)}"></i>${label}${band != null ? ` · BASE ±${band.toFixed(1)}%` : ""}`;
+    item.innerHTML = `<i class="swatch" style="background:${ink("--text-secondary")};opacity:${alpha}"></i>${label}${band != null ? ` ±${band.toFixed(1)}%` : ""}`;
     legend.appendChild(item);
   });
   if (rows.length && (noise.cost != null || noise.processed != null)) {
@@ -788,8 +859,11 @@ function drawDelta(data) {
     label.textContent = row.condition;
     const sub = el("text", { x: 24, y: center + 17, class: "tick" }, svg);
     sub.textContent = `${fmt(row.runs)}건 · ${fmt(row.batches)}회`;
+    // 기법 설명 카드를 없앤 대신, 차트의 기법 이름에 마우스를 올리면 종류와 설명이 보인다.
+    const info = methodInfo(row.condition);
+    if (info) [label, sub].forEach((node) => { node.style.cursor = "help"; hoverable(node, info); });
 
-    METRICS.forEach(([key, name, role], m) => {
+    METRICS.forEach(([key, name, alpha], m) => {
       const value = row[key];
       const y = top + 5 + m * (barH + gap);
       const w = Math.abs(x(value) - zero);
@@ -802,11 +876,11 @@ function drawDelta(data) {
       }
       const path = el("path", {
         d: saving ? barLeft(zero, y, w, barH, 4) : barRight(zero, y, w, barH, 4),
-        fill: ink(role), opacity: saving ? "1" : ".55",
+        fill: ink(saving ? "--good" : "--critical"), opacity: alpha,
       }, svg);
       hoverable(path, `<b>${row.condition} · ${name}</b><br>BASE 대비 <b>${pct(value)}</b><br>
         실행 ${fmt(row.runs)}건 · 회차 ${fmt(row.batches)}개`);
-      const inside = w > 46;
+      const inside = m === 0 && w > 46;
       const t = el("text", {
         x: saving ? (inside ? zero - w + 6 : zero - w - 6) : (inside ? zero + w - 6 : zero + w + 6),
         y: y + barH - 3,
@@ -818,10 +892,19 @@ function drawDelta(data) {
   });
 
   const left = el("text", { x: padL, y: height - 8, class: "tick" }, svg);
-  left.textContent = "← BASE보다 절감";
+  left.textContent = compact ? "← 절감" : "← BASE보다 절감";
   const right = el("text", { x: width - padR, y: height - 8, class: "tick", "text-anchor": "end" }, svg);
-  right.textContent = "BASE보다 증가 →";
+  right.textContent = compact ? "증가 →" : "BASE보다 증가 →";
   note.textContent = "회색 범위 안의 차이는 효과로 구별하기 어렵습니다.";
+}
+
+function methodInfo(condition) {
+  const item = [...document.querySelectorAll("#method-list .method-item")]
+    .find((node) => node.querySelector(".treatment-tag")?.textContent.trim() === condition);
+  if (!item) return "";
+  const kind = item.querySelector(".method-kind")?.textContent || "";
+  const desc = item.querySelector(".treatment-desc")?.innerHTML || "";
+  return `<b>${condition}</b> · ${kind}<br>${desc}`;
 }
 
 function drawOverviewTable(data) {
@@ -1016,12 +1099,18 @@ function missingBaseline(run) {
 function drawRunDelta(data) {
   const box = document.getElementById("delta-run");
   if (!box) return;
+  const head = document.getElementById("run-verdict");
+  const headNote = document.getElementById("run-note");
+  const setHead = (text, tone = "", note = "") => {
+    if (head) { head.textContent = text; head.className = `verdict ${tone}`.trim(); }
+    if (headNote) headNote.innerHTML = note;
+  };
   const run = data.runs.find((r) => r.key === state.runId);
-  if (!run) { box.innerHTML = `<p class="empty">위쪽에서 살펴볼 실행을 선택해 주세요.</p>`; return; }
+  if (!run) { setHead("살펴볼 실행을 선택해 주세요"); box.innerHTML = `<p class="empty">위쪽에서 살펴볼 실행을 선택해 주세요.</p>`; return; }
   const { batch, base } = baselineFor(run, data);
   const runNote = document.getElementById("delta-run-note");
   if (runNote) runNote.hidden = !base;
-  if (!base) { box.innerHTML = missingBaseline(run); return; }
+  if (!base) { setHead("이 실행은 비교할 BASE가 없습니다"); box.innerHTML = missingBaseline(run); return; }
 
   const total = run.observed - base.observed;
   const parts = PARTS.map(([key, label]) => ({ key, label, d: run[key] - base[key] }))
@@ -1058,9 +1147,8 @@ function drawRunDelta(data) {
     ? `${comparison} · ${inNoise ? "변동 폭 안" : "변동 폭 초과"}`
     : `${comparison} · 변동 폭 미측정`;
 
+  setHead(summaryConclusion, noise == null || inNoise ? "" : (total < 0 ? "good" : "bad"), `다시 읽히며 청구된 문맥 합계가 <strong>${fmt(run.observed)}</strong> 토큰으로, 최근 <code>BASE</code> 평균(${fmt(base.observed)} 토큰)보다 <strong>${signed(total)}</strong> 토큰 ${total < 0 ? "적었습니다" : "많았습니다"}.<br>대화 횟수는 ${base.turns.toFixed(1)}턴에서 ${fmt(run.turns)}턴이 되었습니다.${noise != null ? `<br>이날 같은 <code>BASE</code> 실행끼리의 흔들림 폭(noise floor)은 ±${noise.toFixed(1)}%였습니다.` : ""}`);
   box.innerHTML = `
-    <p class="verdict run-verdict ${noise == null || inNoise ? "" : (total < 0 ? "good" : "bad")}">${summaryConclusion}</p>
-    <p class="hero-note">다시 읽히며 청구된 문맥 합계가 <strong>${fmt(run.observed)}</strong> 토큰으로, 최근 <code>BASE</code> 평균(${fmt(base.observed)} 토큰)보다 <strong>${signed(total)}</strong> 토큰 ${total < 0 ? "적었습니다" : "많았습니다"}.<br>대화 횟수는 ${base.turns.toFixed(1)}턴에서 ${fmt(run.turns)}턴이 되었습니다.${noise != null ? `<br>이날 같은 <code>BASE</code> 실행끼리의 흔들림 폭(noise floor)은 ±${noise.toFixed(1)}%였습니다.` : ""}</p>
     <div class="chart run-delta-chart"><svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"
       role="img" aria-label="BASE 대비 항목별 토큰 차이">
       <line x1="${zero}" y1="${padT}" x2="${zero}" y2="${height - 6}" class="axis-line"></line>
@@ -1514,17 +1602,17 @@ function drawKpis(turns) {
       ? "실패"
       : (run.quality_score ? `${Number(run.quality_score).toFixed(0)}점` : "—");
   const cards = [
-    ["기법", run.condition || "—"],
     ["비용 (API 환산)", run.cost_usd ? usd(Number(run.cost_usd)) : "—"],
     ["대화 횟수", `${commas(turns.length)}턴`],
-    ["반복 청구 토큰 (context tax)", fmt(totalTax)],
-    ["핵심 공개 테스트 (critical pass)", testText],
+    ["반복 청구 토큰", fmt(totalTax), "context tax"],
+    ["핵심 공개 테스트", testText, "critical pass"],
     ["평균 집계", validity],
   ];
-  cards.forEach(([label, value]) => {
+  cards.forEach(([label, value, term]) => {
     const box = document.createElement("div");
-    box.className = "kpi";
-    box.innerHTML = `<div class="label">${label}</div><div class="value">${value}</div>`;
+    box.className = "kpi-tile";
+    if (term) box.title = term;
+    box.innerHTML = `<div class="kpi-label">${label}</div><div class="kpi-value">${value}</div>`;
     kpis.appendChild(box);
   });
 
@@ -1626,8 +1714,10 @@ function render() {
   drawBench(state.results.filter((r) => visibleIds.has(r.run_id)));
   drawVerdict(data);
   drawKpiStrip(data);
+  colorMethodTags();
   drawCorpusKpis(data);
   drawDelta(data);
+  drawJudge(data);
   drawStrip(data);
   drawOverviewTable(data);
   drawConditionTable(data);
@@ -1736,7 +1826,9 @@ function drawBench(records) {
   }
   note.textContent = `총 ${commas(records.length)}건의 실행 결과를 표시하고 있습니다.`;
 
-  for (const s of summarizeByCondition(records)) {
+  const order = knownConditions();
+  const rank = (id) => { const i = order.indexOf(conditionLabel(id)); return i < 0 ? order.length : i; };
+  for (const s of summarizeByCondition(records).sort((a, b) => rank(a.conditionId) - rank(b.conditionId))) {
     const row = summaryBody.insertRow();
     addCell(row, conditionLabel(s.conditionId), { align: "left" });
     addCell(row, s.runCount === s.totalCount
@@ -1936,5 +2028,100 @@ if (typeof module !== "undefined" && module.exports) {
       const next = tabs[(i + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length];
       select(next); next.focus();
     });
+  });
+})();
+
+/* ---------- 설명 3단 ----------
+   1단(늘 보임): 제목, 숫자, 차트. 2단(ⓘ에 마우스·탭): 설명 문장. 3단(펼치기): 표와 긴 분석.
+   문장을 지우지 않고 자리만 옮긴다. 동적 문장도 ⓘ를 여는 순간의 내용을 보여 준다. */
+(function setupTiers() {
+  if (typeof document === "undefined") return;
+
+  // 3단: data-fold 카드를 접힌 <details>로 바꾼다. 제목은 그대로 summary가 된다.
+  document.querySelectorAll("[data-fold]").forEach((card) => {
+    const heading = card.querySelector("h2");
+    if (!heading) return;
+    const details = document.createElement("details");
+    details.className = "tier-fold";
+    const summary = document.createElement("summary");
+    heading.replaceWith(summary);
+    summary.appendChild(heading);
+    details.appendChild(summary);
+    while (card.firstChild) details.appendChild(card.firstChild);
+    // summary를 맨 앞으로(제목이 안쪽 div에 있던 경우)
+    details.prepend(summary);
+    card.appendChild(details);
+  });
+
+  // 2단: 설명 문단을 숨기고 가장 가까운 제목 옆 ⓘ로 연다.
+  const KEEP = "[aria-live], .modal *, #plan-section *, #provenance, #reconcile-check, details.tier-fold *";
+  const paragraphs = [...document.querySelectorAll(
+    ".preview-heading p, .page-head p.muted, .card p.muted, .card p.note, #verdict-note, #verify-note, #run-note"
+  )].filter((p) => !p.matches(KEEP));
+  const groups = new Map();
+  paragraphs.forEach((p) => {
+    const box = p.closest(".subpanel, .chart-panel, .card, .view-head, .page-head > div, .preview-heading > div");
+    let heading = box && box.querySelector("h3, h2");
+    if (box && box.matches(".chart-panel")) heading = null; // 차트 패널은 보이는 머리글마다 따로
+    if (!heading) {
+      const head = p.closest("[id^=heading-]");
+      heading = head ? head.querySelector("h2") : box && box.querySelector("h2");
+    }
+    if (!heading) return;
+    if (!groups.has(heading)) groups.set(heading, []);
+    groups.get(heading).push(p);
+  });
+  // 차트 패널 안의 그래프 주석(delta-note 등)은 지금 보이는 머리글에 붙인다.
+  const chartNotes = [...document.querySelectorAll(".chart-panel p.note, .chart-panel p.muted")];
+  chartNotes.forEach((p) => {
+    for (const list of groups.values()) { const i = list.indexOf(p); if (i >= 0) list.splice(i, 1); }
+    const tab = p.closest("[role=tabpanel]");
+    const head = tab ? document.getElementById(tab.id.replace("chart-", "heading-")) : p.closest("[id^=heading-]");
+    const heading = head && head.querySelector("h2");
+    if (!heading) return;
+    if (!groups.has(heading)) groups.set(heading, []);
+    if (!groups.get(heading).includes(p)) groups.get(heading).push(p);
+  });
+
+  let pinned = null;
+  function open(button, list, event) {
+    const html = list.map((p) => p.innerHTML.trim()).filter(Boolean).map((t) => `<p>${t}</p>`).join("");
+    if (!html) return;
+    tip.classList.add("info");
+    const r = button.getBoundingClientRect();
+    showTip(event && event.clientX ? event : { clientX: r.right, clientY: r.bottom }, html);
+  }
+  function close() { hideTip(); pinned = null; }
+  groups.forEach((list, heading) => {
+    if (!list.length) return;
+    list.forEach((p) => p.classList.add("tier-hidden"));
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "info-dot";
+    button.setAttribute("aria-label", "설명 보기");
+    button.textContent = "i";
+    button.addEventListener("mouseenter", (e) => open(button, list, e));
+    button.addEventListener("mouseleave", () => { if (pinned !== button) close(); });
+    button.addEventListener("focus", () => open(button, list));
+    button.addEventListener("blur", close);
+    button.addEventListener("click", (e) => {
+      e.preventDefault(); e.stopPropagation();
+      if (pinned === button) return close();
+      open(button, list); pinned = button;
+    });
+    heading.appendChild(button);
+    // 판정 문장처럼 렌더링 때 textContent가 다시 쓰이는 제목은 ⓘ를 다시 붙인다.
+    new MutationObserver(() => {
+      if (!heading.contains(button)) heading.appendChild(button);
+    }).observe(heading, { childList: true });
+  });
+  document.addEventListener("click", () => { if (pinned) close(); });
+
+  // 기법 설명은 이름 줄에 마우스를 올리면 보인다.
+  document.querySelectorAll("#method-list .method-item").forEach((item) => {
+    const desc = item.querySelector(".treatment-desc");
+    if (!desc) return;
+    desc.classList.add("tier-hidden");
+    hoverable(item, desc.innerHTML);
   });
 })();

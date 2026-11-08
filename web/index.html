@@ -9,7 +9,7 @@
 <meta property="og:description" content="어떤 절약법도 같은 설정끼리의 흔들림 폭을 넘는 확실한 효과가 확인되지 않았습니다.">
 <meta property="og:type" content="website">
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect x='3' y='12' width='4' height='9' rx='1' fill='%232a78d6'/><rect x='10' y='7' width='4' height='14' rx='1' fill='%232a78d6'/><rect x='17' y='3' width='4' height='18' rx='1' fill='%232a78d6'/></svg>">
-<link rel="stylesheet" href="style.css?v=20261102">
+<link rel="stylesheet" href="style.css?v=20261109j">
 
 <script>
 (function() {
@@ -105,6 +105,12 @@
 
     </section>
 
+    <section class="card judge-card" aria-labelledby="judge-title">
+      <div class="card-head"><h2 id="judge-title">기법별 판정</h2></div>
+      <p class="muted" id="judge-note">막대는 비용 차이, 세로선은 BASE끼리 흔들림 폭입니다. 선을 넘어야 효과로 봅니다.</p>
+      <ul class="judge-list" id="judge-list"></ul>
+    </section>
+
     <section class="card methods">
       <div class="card-head">
         <h2 id="method-title">비교한 기법</h2>
@@ -123,7 +129,7 @@
 
 
 
-  <section class="card fold-card">
+  <section class="card fold-card" data-fold>
     <div class="expanded-section">
       <h2>기법별 수치 요약표</h2>
       <div class="table-toolbar">
@@ -133,7 +139,7 @@
     </div>
   </section>
 
-  <section class="card fold-card archive-records">
+  <section class="card fold-card archive-records" data-fold>
     <div class="expanded-section">
       <h2>전체 실험 기록 <span id="archive-count"></span></h2>
       <div class="table-toolbar">
@@ -160,47 +166,45 @@
     </div>
   </div>
 
-  <section class="card hero-card">
-    <h2>선택한 실행의 결과</h2>
-    <div class="kpi-row run-kpis" id="kpis"></div>
-    <div id="delta-run"></div>
-  </section>
+  <div class="view-head">
+    <h2 class="verdict" id="run-verdict"></h2>
+    <p class="hero-note" id="run-note"></p>
+  </div>
+  <div class="tile-row run-kpis" id="kpis" aria-label="선택한 실행의 핵심 지표"></div>
 
-  <div class="detail-analysis">
+  <div class="pair-row wide-left detail-analysis">
   <section class="card">
     <h2>턴별 반복 청구 토큰</h2>
     <p class="muted">각 턴에서 들어온 내용이 이후 턴에 다시 청구된 양입니다.</p>
     <div class="chart"><svg id="timeline" role="img" aria-label="턴별 반복 청구 토큰 막대 차트"></svg></div>
   </section>
-
-  <section class="card fold-card">
-    <div class="expanded-section">
-      <h2>토큰이 많이 든 턴</h2>
-      <p class="muted">반복 청구량이 큰 순서로 표시합니다.</p>
-      <div id="top-turns"></div>
-    </div>
+  <section class="card">
+    <h2>토큰이 많이 든 턴</h2>
+    <p class="muted">반복 청구량이 큰 순서로 표시합니다.</p>
+    <div id="top-turns"></div>
   </section>
   </div>
 
-  <section class="card fold-card">
-    <div class="expanded-section">
-      <h2>도구별 누적량과 대화 길이 증가</h2>
-      <div class="grid12 inner-grid">
-        <div class="col-6 subpanel">
-          <h3>도구별 누적 반복 청구 토큰 (context tax)</h3>
-          <p class="muted">어떤 도구가 불러들인 내용이 이후 턴들에서 많이 다시 읽혔는지 보여줍니다.</p>
-          <div class="chart"><svg id="tools" role="img" aria-label="도구별 누적 반복 청구 토큰"></svg></div>
-        </div>
-        <div class="col-6 subpanel">
-          <h3>턴 진행에 따른 대화 문맥 크기 변화</h3>
-          <p class="muted">턴이 진행되면서 매번 모델에 다시 전달되는 전체 문맥(컨텍스트)의 크기입니다.</p>
-          <div class="chart"><svg id="growth" role="img" aria-label="턴별 문맥 크기 곡선"></svg></div>
-        </div>
-      </div>
-    </div>
+  <div class="pair-row">
+  <section class="card">
+    <h2>BASE와 어디서 달랐나</h2>
+    <p class="muted">항목별로 최근 BASE 평균보다 줄어든(초록) 양과 늘어난(빨강) 양입니다.</p>
+    <div id="delta-run"></div>
+  </section>
+  <section class="card">
+    <h2>도구별 누적 반복 청구 토큰</h2>
+    <p class="muted">어떤 도구가 불러들인 내용이 이후 턴들에서 많이 다시 읽혔는지 보여줍니다 (context tax).</p>
+    <div class="chart"><svg id="tools" role="img" aria-label="도구별 누적 반복 청구 토큰"></svg></div>
+  </section>
+  </div>
+
+  <section class="card">
+    <h2>턴 진행에 따른 대화 문맥 크기</h2>
+    <p class="muted">턴이 진행되면서 매번 모델에 다시 전달되는 전체 문맥(컨텍스트)의 크기입니다.</p>
+    <div class="chart"><svg id="growth" role="img" aria-label="턴별 문맥 크기 곡선"></svg></div>
   </section>
 
-  <section class="card run-analysis">
+  <section class="card run-analysis" data-fold>
     <h2>상세 분석</h2>
     <div class="run-analysis-grid">
       <div><h3>턴별 상세 설명</h3><div id="turn-stories"></div></div>
@@ -210,7 +214,7 @@
     </div>
   </section>
 
-  <section class="card fold-card">
+  <section class="card fold-card" data-fold>
     <div class="expanded-section" id="turn-data">
       <h2>턴별 원본 데이터와 측정 검증 <span class="muted" id="table-count"></span></h2>
       <p class="note" id="provenance"></p>
@@ -230,12 +234,21 @@
       <h2 class="page-title">결과 검증</h2>
       <p class="muted">조건별 평균과 실행 기록을 확인합니다.</p>
     </div>
-    <div class="scope" id="scope-verify"></div>
+    <div class="scope" id="scope-verify" hidden></div>
   </div>
 
-  <section class="card hero-card">
+  <div class="view-head">
     <h2 class="verdict verify-verdict" id="verify-verdict"></h2>
     <p class="hero-note" id="verify-note"></p>
+  </div>
+  <div class="tile-row" id="verify-tiles" aria-label="검증 범위"></div>
+
+  <section class="card">
+    <h2>회차별 평균 비용</h2>
+    <p class="muted">날짜별 기법 평균 비용입니다. 범례에 마우스를 올리면 해당 기법을 강조합니다.</p>
+    <div class="chart"><svg id="trend" role="img" aria-label="회차별 기법 비용 추세"></svg></div>
+    <div class="legend trend-legend" id="trend-legend" aria-label="기법에 마우스를 올리면 그 기법만 강조합니다"></div>
+    <p class="note" id="trend-note"></p>
   </section>
 
   <section class="card fold-card">
@@ -249,15 +262,8 @@
     </div>
   </section>
 
-  <section class="card">
-    <h2>회차별 평균 비용</h2>
-    <p class="muted">날짜별 기법 평균 비용입니다. 범례에 마우스를 올리면 해당 기법을 강조합니다.</p>
-    <div class="chart"><svg id="trend" role="img" aria-label="회차별 기법 비용 추세"></svg></div>
-    <div class="legend trend-legend" id="trend-legend" aria-label="기법에 마우스를 올리면 그 기법만 강조합니다"></div>
-    <p class="note" id="trend-note"></p>
-  </section>
 
-  <section class="card fold-card">
+  <section class="card fold-card" data-fold>
     <div class="expanded-section">
       <h2>개별 실행 원본 기록</h2>
       <p class="muted" id="bench-status" aria-live="polite"></p>
@@ -427,7 +433,7 @@
 
 </div>
 <div class="tooltip" id="tip" role="status" aria-live="polite"></div>
-<script src="app.js?v=20261031"></script>
-<script src="settings.js?v=20261102"></script>
+<script src="app.js?v=20261109j"></script>
+<script src="settings.js?v=20261109j"></script>
 </body>
 </html>
